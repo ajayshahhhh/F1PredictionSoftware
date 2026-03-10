@@ -2,360 +2,196 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>F1 · Race Intelligence</title>
 <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;600;700;900&family=JetBrains+Mono:wght@300;400;500&family=Barlow:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
 :root {
-  --bg0: #06080d;
-  --bg1: #0a0f18;
-  --bg2: #0f1620;
-  --bg3: #141d2a;
-  --line: #1a2535;
-  --line2: #243346;
-  --text: #dce8f5;
-  --muted: #4a6680;
-  --dim: #2a3d52;
-  --red: #e8001a;
-  --amber: #f5a623;
-  --green: #00e676;
-  --cyan: #00d4ff;
-  --hud: 'Orbitron', monospace;
-  --mono: 'JetBrains Mono', monospace;
-  --body: 'Barlow', sans-serif;
+  --bg0:#06080d; --bg1:#0a0f18; --bg2:#0f1620; --bg3:#141d2a;
+  --line:#1a2535; --line2:#243346; --text:#dce8f5; --muted:#4a6680; --dim:#2a3d52;
+  --red:#e8001a; --amber:#f5a623; --green:#00e676; --cyan:#00d4ff;
+  --hud:'Orbitron',monospace; --mono:'JetBrains Mono',monospace; --body:'Barlow',sans-serif;
 }
-* { box-sizing: border-box; margin: 0; padding: 0; }
-html, body { height: 100%; overflow: hidden; }
-body { background: var(--bg0); color: var(--text); font-family: var(--body); }
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;overflow:hidden;}
+body{background:var(--bg0);color:var(--text);font-family:var(--body);}
+body::before{content:'';position:fixed;inset:0;pointer-events:none;z-index:9999;
+  background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.03) 2px,rgba(0,0,0,0.03) 4px);}
 
-/* ── SCAN LINE TEXTURE ── */
-body::before {
-  content: '';
-  position: fixed; inset: 0; pointer-events: none; z-index: 9999;
-  background: repeating-linear-gradient(0deg, transparent, transparent 2px, rgba(0,0,0,0.03) 2px, rgba(0,0,0,0.03) 4px);
-}
+#app{display:grid;grid-template-rows:52px 1fr;grid-template-columns:220px 1fr 300px;height:100vh;}
 
-/* ── LAYOUT ── */
-#app {
-  display: grid;
-  grid-template-rows: 52px 1fr;
-  grid-template-columns: 220px 1fr 300px;
-  height: 100vh;
-}
+/* TOPBAR */
+#topbar{grid-column:1/-1;background:var(--bg1);border-bottom:1px solid var(--line);
+  display:flex;align-items:center;gap:16px;padding:0 20px;position:relative;}
+#topbar::after{content:'';position:absolute;bottom:0;left:0;right:0;height:1px;
+  background:linear-gradient(90deg,transparent,var(--red),transparent);opacity:0.4;}
+.logo{font-family:var(--hud);font-size:11px;font-weight:700;letter-spacing:4px;color:var(--red);}
+.logo span{color:var(--muted);font-weight:400;}
+.controls{display:flex;align-items:center;gap:8px;margin-left:auto;}
+select{font-family:var(--mono);font-size:11px;background:var(--bg2);border:1px solid var(--line2);
+  color:var(--text);padding:6px 10px;border-radius:3px;cursor:pointer;appearance:none;min-width:130px;}
+select:focus{outline:none;border-color:var(--red);}
+.btn{font-family:var(--mono);font-size:11px;letter-spacing:1px;padding:6px 14px;border-radius:3px;cursor:pointer;border:1px solid;transition:all .15s;}
+.btn-primary{background:var(--red);border-color:var(--red);color:#fff;}
+.btn-primary:hover{background:#c50017;}
+.btn-primary:disabled{opacity:.35;cursor:not-allowed;}
+.btn-ghost{background:transparent;border-color:var(--line2);color:var(--muted);}
+.btn-ghost:hover{border-color:var(--cyan);color:var(--cyan);}
+.btn-toggle{background:var(--bg2);border-color:var(--line2);color:var(--muted);font-size:10px;padding:5px 12px;}
+.btn-toggle.active{background:rgba(0,212,255,0.12);border-color:var(--cyan);color:var(--cyan);}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--muted);flex-shrink:0;}
+.dot.live{background:var(--green);animation:pulse 1.5s infinite;}
+.dot.loading{background:var(--amber);animation:blink .6s infinite;}
+#lap-counter{font-family:var(--hud);font-size:12px;color:var(--cyan);letter-spacing:2px;min-width:70px;text-align:center;}
 
-/* ── TOPBAR ── */
-#topbar {
-  grid-column: 1 / -1;
-  background: var(--bg1);
-  border-bottom: 1px solid var(--line);
-  display: flex; align-items: center; gap: 20px; padding: 0 24px;
-  position: relative;
-}
+/* LEFT */
+#left{background:var(--bg1);border-right:1px solid var(--line);overflow-y:auto;padding:12px 0;}
+.panel-label{font-family:var(--mono);font-size:9px;letter-spacing:2px;color:var(--muted);padding:0 16px 10px;text-transform:uppercase;}
+.driver-row{display:flex;align-items:center;gap:10px;padding:7px 16px;cursor:pointer;
+  border-left:2px solid transparent;transition:background .12s,border-color .12s;position:relative;}
+.driver-row:hover{background:rgba(255,255,255,.025);}
+.driver-row.active{background:var(--bg3);border-left-color:var(--driver-color,var(--red));}
+.dr-swatch{width:8px;height:8px;border-radius:50%;background:var(--driver-color,var(--muted));flex-shrink:0;}
+.dr-info{flex:1;min-width:0;}
+.dr-code{font-family:var(--hud);font-size:11px;font-weight:700;}
+.dr-name{font-size:9px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.dr-right{display:flex;flex-direction:column;align-items:flex-end;gap:2px;}
+.dr-prob{font-family:var(--mono);font-size:11px;font-weight:500;color:var(--driver-color,var(--green));min-width:38px;text-align:right;}
+.dr-pos{font-family:var(--hud);font-size:9px;color:var(--muted);}
 
-#topbar::after {
-  content: '';
-  position: absolute; bottom: 0; left: 0; right: 0; height: 1px;
-  background: linear-gradient(90deg, transparent, var(--red), transparent);
-  opacity: 0.4;
-}
+/* CENTER */
+#center{display:flex;flex-direction:column;overflow:hidden;}
+#track-area{flex:1;position:relative;display:flex;align-items:center;justify-content:center;
+  background:radial-gradient(ellipse at center,#0d1a26 0%,var(--bg0) 70%);}
 
-.logo {
-  font-family: var(--hud);
-  font-size: 11px; font-weight: 700; letter-spacing: 4px;
-  color: var(--red);
-}
-.logo span { color: var(--muted); font-weight: 400; }
+/* View toggle pills */
+#view-toggle{position:absolute;top:14px;right:16px;display:none;gap:0;
+  border:1px solid var(--line2);border-radius:4px;overflow:hidden;}
+.view-pill{font-family:var(--mono);font-size:9px;letter-spacing:1px;padding:5px 12px;
+  background:var(--bg2);color:var(--muted);cursor:pointer;border:none;transition:all .15s;}
+.view-pill.active{background:rgba(0,212,255,.12);color:var(--cyan);}
+.view-pill:hover:not(.active){background:var(--bg3);color:var(--text);}
 
-.controls { display: flex; align-items: center; gap: 10px; margin-left: auto; }
+#track-svg-wrap{width:100%;height:100%;display:flex;align-items:center;justify-content:center;}
+#track-svg-wrap svg{max-width:88%;max-height:88%;filter:drop-shadow(0 0 30px rgba(0,212,255,.06));}
 
-select {
-  font-family: var(--mono); font-size: 11px;
-  background: var(--bg2); border: 1px solid var(--line2);
-  color: var(--text); padding: 6px 10px; border-radius: 3px; cursor: pointer;
-  appearance: none; min-width: 140px;
-}
-select:focus { outline: none; border-color: var(--red); }
+/* SVG styles */
+.track-outline{fill:none;stroke:var(--line2);stroke-width:18;stroke-linecap:round;stroke-linejoin:round;}
+.track-inner{fill:none;stroke:var(--bg1);stroke-width:14;stroke-linecap:round;stroke-linejoin:round;}
+.track-center{fill:none;stroke:#1e3045;stroke-width:1;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:6 8;}
+.corner-dot{cursor:pointer;transition:r .15s;filter:drop-shadow(0 0 4px var(--c-color,#1e4060));}
+.corner-dot:hover{r:9;}
+.corner-dot.active-corner{r:10;animation:corner-pulse 1s infinite;}
+.corner-label{font-family:var(--hud);font-size:8px;font-weight:600;fill:var(--muted);pointer-events:none;}
+.corner-label.active-corner{fill:var(--cyan);}
+/* Driver position markers */
+.driver-pos-marker{cursor:pointer;transition:all .4s cubic-bezier(.16,1,.3,1);}
+.driver-pos-label{font-family:var(--hud);font-size:9px;font-weight:700;pointer-events:none;
+  text-shadow:0 1px 3px rgba(0,0,0,.9);}
 
-.btn {
-  font-family: var(--mono); font-size: 11px; letter-spacing: 1px;
-  padding: 6px 16px; border-radius: 3px; cursor: pointer; border: 1px solid;
-  transition: all 0.15s;
-}
-.btn-primary { background: var(--red); border-color: var(--red); color: #fff; }
-.btn-primary:hover { background: #c50017; }
-.btn-primary:disabled { opacity: 0.35; cursor: not-allowed; }
-.btn-ghost { background: transparent; border-color: var(--line2); color: var(--muted); }
-.btn-ghost:hover { border-color: var(--cyan); color: var(--cyan); }
+/* Impact badge */
+#impact-badge{position:absolute;top:14px;left:16px;
+  background:rgba(245,166,35,.12);border:1px solid rgba(245,166,35,.35);
+  border-radius:4px;padding:6px 12px;font-family:var(--mono);font-size:10px;color:var(--amber);display:none;}
+#impact-badge b{font-size:13px;font-family:var(--hud);}
 
-.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--muted); flex-shrink: 0; }
-.dot.live { background: var(--green); animation: pulse 1.5s infinite; }
-.dot.loading { background: var(--amber); animation: blink 0.6s infinite; }
+/* Corner inspector */
+#corner-inspector{position:absolute;bottom:64px;left:50%;transform:translateX(-50%);
+  background:rgba(10,15,24,.96);border:1px solid var(--line2);border-radius:6px;
+  padding:14px 18px;min-width:340px;display:none;backdrop-filter:blur(8px);}
+#corner-inspector.show{display:block;animation:fadeUp .2s ease-out;}
 
-#lap-counter {
-  font-family: var(--hud); font-size: 12px; color: var(--cyan);
-  letter-spacing: 2px; min-width: 80px; text-align: center;
-}
+/* Scrubber */
+#scrubber{background:var(--bg1);border-top:1px solid var(--line);
+  padding:10px 20px;display:flex;align-items:center;gap:14px;}
+#play-btn{width:32px;height:32px;border-radius:50%;background:var(--bg3);
+  border:1px solid var(--line2);color:var(--text);cursor:pointer;font-size:12px;
+  display:flex;align-items:center;justify-content:center;transition:border-color .15s,background .15s;flex-shrink:0;}
+#play-btn:hover{border-color:var(--cyan);background:var(--bg2);}
+#play-btn.playing{border-color:var(--red);}
+#lap-slider{flex:1;-webkit-appearance:none;height:3px;background:var(--line);border-radius:2px;outline:none;}
+#lap-slider::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;border-radius:50%;
+  background:var(--cyan);cursor:pointer;box-shadow:0 0 8px rgba(0,212,255,.4);}
 
-/* ── LEFT PANEL: driver list ── */
-#left {
-  background: var(--bg1); border-right: 1px solid var(--line);
-  overflow-y: auto; padding: 12px 0;
-}
+/* RIGHT */
+#right{background:var(--bg1);border-left:1px solid var(--line);overflow-y:auto;display:flex;flex-direction:column;}
+.right-section{padding:16px;border-bottom:1px solid var(--line);}
+.section-title{font-family:var(--mono);font-size:9px;letter-spacing:2px;color:var(--muted);
+  margin-bottom:12px;display:flex;align-items:center;gap:8px;}
+.section-title::after{content:'';flex:1;height:1px;background:var(--line);}
+#chart-win-prob{max-height:160px;}
 
-.panel-label {
-  font-family: var(--mono); font-size: 9px; letter-spacing: 2px; color: var(--muted);
-  padding: 0 16px 10px; text-transform: uppercase;
-}
+/* Driver detail */
+#driver-detail-panel{padding:16px;display:none;}
+.dd-header{margin-bottom:14px;}
+.dd-code{font-family:var(--hud);font-size:28px;font-weight:900;line-height:1;}
+.dd-name{font-size:12px;color:var(--muted);margin-top:2px;}
+.dd-team{font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:1px;margin-top:4px;}
+.dd-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:14px;}
+.dd-stat{background:var(--bg2);border-radius:4px;padding:8px 10px;}
+.dd-stat-val{font-family:var(--hud);font-size:15px;font-weight:700;}
+.dd-stat-label{font-size:8px;color:var(--muted);letter-spacing:1px;margin-top:2px;}
+.chart-small{max-height:100px;margin-bottom:10px;}
 
-.driver-row {
-  display: flex; align-items: center; gap: 10px;
-  padding: 8px 16px; cursor: pointer;
-  border-left: 2px solid transparent;
-  transition: background 0.12s, border-color 0.12s;
-  position: relative;
-}
-.driver-row:hover { background: rgba(255,255,255,0.025); }
-.driver-row.active { background: var(--bg3); border-left-color: var(--driver-color, var(--red)); }
+/* Click prompt */
+#driver-click-prompt{padding:28px 16px;text-align:center;}
 
-.dr-swatch { width: 8px; height: 8px; border-radius: 50%; background: var(--driver-color, var(--muted)); flex-shrink: 0; }
-.dr-info { flex: 1; min-width: 0; }
-.dr-code { font-family: var(--hud); font-size: 11px; font-weight: 700; }
-.dr-name { font-size: 9px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.dr-prob {
-  font-family: var(--mono); font-size: 11px; font-weight: 500;
-  color: var(--driver-color, var(--green));
-  min-width: 38px; text-align: right;
-}
+/* Loading */
+#loading-overlay{position:fixed;inset:0;background:rgba(6,8,13,.92);
+  display:none;align-items:center;justify-content:center;flex-direction:column;gap:16px;z-index:1000;}
+#loading-overlay.show{display:flex;}
+.loading-text{font-family:var(--hud);font-size:11px;letter-spacing:3px;color:var(--red);}
+.loading-track{width:280px;height:2px;background:var(--line);border-radius:1px;overflow:hidden;}
+#loading-fill{height:100%;background:linear-gradient(90deg,var(--red),var(--amber));width:0%;transition:width .4s ease;}
 
-.dr-bar {
-  position: absolute; bottom: 0; left: 0; right: 0; height: 1px;
-  background: var(--driver-color, transparent); opacity: 0.2;
-  transition: opacity 0.3s;
-}
-.driver-row.active .dr-bar { opacity: 0.6; }
+/* Corner inspector internals */
+.ci-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;}
+.ci-title{font-family:var(--hud);font-size:14px;font-weight:700;color:var(--cyan);}
+.ci-lap{font-family:var(--mono);font-size:10px;color:var(--muted);}
+.ci-close{font-size:14px;cursor:pointer;color:var(--muted);background:none;border:none;}
+.ci-close:hover{color:var(--text);}
+.ci-winner-row{display:flex;align-items:center;gap:12px;background:var(--bg3);border-radius:4px;
+  padding:10px 12px;margin-bottom:12px;border-left:3px solid var(--winner-color,var(--cyan));}
+.ci-winner-code{font-family:var(--hud);font-size:18px;font-weight:900;}
+.ci-winner-name{font-size:11px;color:var(--muted);}
+.ci-winner-label{font-family:var(--mono);font-size:9px;color:var(--amber);letter-spacing:1px;}
+.ci-stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;}
+.ci-stat{text-align:center;}
+.ci-stat-val{font-family:var(--mono);font-size:16px;font-weight:500;}
+.ci-stat-label{font-size:9px;color:var(--muted);letter-spacing:1px;margin-top:2px;}
 
-/* ── CENTER PANEL ── */
-#center {
-  display: flex; flex-direction: column; overflow: hidden;
-}
+/* Position view legend */
+#pos-legend{position:absolute;bottom:64px;right:16px;
+  background:rgba(10,15,24,.9);border:1px solid var(--line2);border-radius:4px;
+  padding:10px 14px;display:none;min-width:160px;}
+.pos-legend-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:10px;}
+.pos-legend-row:last-child{margin-bottom:0;}
+.pos-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
 
-/* Track area */
-#track-area {
-  flex: 1; position: relative; display: flex; align-items: center; justify-content: center;
-  background: radial-gradient(ellipse at center, #0d1a26 0%, var(--bg0) 70%);
-}
-
-#track-svg-wrap {
-  width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
-}
-
-#track-svg-wrap svg {
-  max-width: 90%; max-height: 90%;
-  filter: drop-shadow(0 0 30px rgba(0, 212, 255, 0.06));
-}
-
-/* SVG track styles */
-.track-outline { fill: none; stroke: var(--line2); stroke-width: 18; stroke-linecap: round; stroke-linejoin: round; }
-.track-inner   { fill: none; stroke: var(--bg1);   stroke-width: 14; stroke-linecap: round; stroke-linejoin: round; }
-.track-center  { fill: none; stroke: #1e3045;       stroke-width: 1;  stroke-linecap: round; stroke-linejoin: round; stroke-dasharray: 6 8; }
-
-.corner-dot {
-  cursor: pointer; transition: r 0.15s, opacity 0.15s;
-  filter: drop-shadow(0 0 4px var(--c-color));
-}
-.corner-dot:hover { r: 9; }
-.corner-dot.active { r: 10; animation: corner-pulse 1s infinite; }
-.corner-label {
-  font-family: var(--hud); font-size: 8px; font-weight: 600;
-  fill: var(--muted); cursor: pointer; pointer-events: none;
-  transition: fill 0.15s;
-}
-.corner-label.active { fill: var(--cyan); }
-
-@keyframes corner-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
-}
-
-/* Impactful corner badge */
-#impact-badge {
-  position: absolute; top: 14px; left: 16px;
-  background: rgba(245,166,35,0.12); border: 1px solid rgba(245,166,35,0.35);
-  border-radius: 4px; padding: 6px 12px;
-  font-family: var(--mono); font-size: 10px; color: var(--amber);
-  display: none;
-}
-#impact-badge b { font-size: 13px; font-family: var(--hud); }
-
-/* Lap scrubber */
-#scrubber {
-  background: var(--bg1); border-top: 1px solid var(--line);
-  padding: 10px 20px; display: flex; align-items: center; gap: 14px;
-}
-
-#play-btn {
-  width: 32px; height: 32px; border-radius: 50%;
-  background: var(--bg3); border: 1px solid var(--line2);
-  color: var(--text); cursor: pointer; font-size: 12px;
-  display: flex; align-items: center; justify-content: center;
-  transition: border-color 0.15s, background 0.15s;
-  flex-shrink: 0;
-}
-#play-btn:hover { border-color: var(--cyan); background: var(--bg2); }
-#play-btn.playing { border-color: var(--red); }
-
-#lap-slider {
-  flex: 1; -webkit-appearance: none; height: 3px;
-  background: var(--line); border-radius: 2px; outline: none;
-}
-#lap-slider::-webkit-slider-thumb {
-  -webkit-appearance: none; width: 14px; height: 14px;
-  border-radius: 50%; background: var(--cyan);
-  cursor: pointer; box-shadow: 0 0 8px rgba(0,212,255,0.4);
-}
-
-/* ── CORNER INSPECTOR OVERLAY ── */
-#corner-inspector {
-  position: absolute; bottom: 64px; left: 50%; transform: translateX(-50%);
-  background: rgba(10,15,24,0.96); border: 1px solid var(--line2);
-  border-radius: 6px; padding: 14px 18px; min-width: 340px;
-  display: none; backdrop-filter: blur(8px);
-}
-#corner-inspector.show { display: block; animation: fadeUp 0.2s ease-out; }
-
-@keyframes fadeUp { from { opacity: 0; transform: translateX(-50%) translateY(8px); } to { opacity: 1; transform: translateX(-50%) translateY(0); } }
-
-.ci-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
-.ci-title { font-family: var(--hud); font-size: 14px; font-weight: 700; color: var(--cyan); }
-.ci-lap { font-family: var(--mono); font-size: 10px; color: var(--muted); }
-.ci-close { font-size: 14px; cursor: pointer; color: var(--muted); background: none; border: none; }
-.ci-close:hover { color: var(--text); }
-
-.ci-winner-row {
-  display: flex; align-items: center; gap: 12px;
-  background: var(--bg3); border-radius: 4px; padding: 10px 12px; margin-bottom: 12px;
-  border-left: 3px solid var(--winner-color, var(--cyan));
-}
-.ci-winner-code { font-family: var(--hud); font-size: 18px; font-weight: 900; color: var(--winner-color, var(--cyan)); }
-.ci-winner-name { font-size: 11px; color: var(--muted); }
-.ci-winner-label { font-family: var(--mono); font-size: 9px; color: var(--amber); letter-spacing: 1px; }
-
-.ci-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
-.ci-stat { text-align: center; }
-.ci-stat-val { font-family: var(--mono); font-size: 16px; font-weight: 500; }
-.ci-stat-label { font-size: 9px; color: var(--muted); letter-spacing: 1px; margin-top: 2px; }
-
-/* ── RIGHT PANEL ── */
-#right {
-  background: var(--bg1); border-left: 1px solid var(--line);
-  overflow-y: auto; display: flex; flex-direction: column;
-}
-
-.right-section { padding: 16px; border-bottom: 1px solid var(--line); }
-.right-section:last-child { border-bottom: none; flex: 1; }
-
-.section-title {
-  font-family: var(--mono); font-size: 9px; letter-spacing: 2px; color: var(--muted);
-  margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
-}
-.section-title::after { content: ''; flex: 1; height: 1px; background: var(--line); }
-
-/* Win prob chart */
-#chart-win-prob { max-height: 160px; }
-
-/* Position tracker */
-.pos-row {
-  display: flex; align-items: center; gap: 8px;
-  padding: 5px 0; border-bottom: 1px solid rgba(26,37,53,0.5);
-  transition: all 0.3s;
-}
-.pos-num {
-  font-family: var(--hud); font-size: 11px; width: 20px; text-align: center;
-  color: var(--muted);
-}
-.pos-num.p1 { color: #ffd700; }
-.pos-num.p2 { color: #c0c8d8; }
-.pos-num.p3 { color: #cd7f32; }
-.pos-name { font-size: 11px; flex: 1; }
-.pos-code { font-family: var(--hud); font-size: 9px; color: var(--muted); width: 30px; }
-.pos-bar-wrap { width: 60px; }
-.pos-bar { height: 2px; border-radius: 1px; background: var(--dim); overflow: hidden; }
-.pos-bar-fill { height: 100%; border-radius: 1px; transition: width 0.6s cubic-bezier(0.16,1,0.3,1); }
-.pos-pct { font-family: var(--mono); font-size: 10px; width: 38px; text-align: right; }
-
-/* Driver detail (right panel, when driver selected) */
-#driver-detail-panel { padding: 16px; }
-
-.dd-header { margin-bottom: 14px; }
-.dd-code { font-family: var(--hud); font-size: 28px; font-weight: 900; line-height: 1; }
-.dd-name { font-size: 12px; color: var(--muted); margin-top: 2px; }
-.dd-team { font-family: var(--mono); font-size: 9px; color: var(--muted); letter-spacing: 1px; margin-top: 4px; }
-
-.dd-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 14px; }
-.dd-stat { background: var(--bg2); border-radius: 4px; padding: 8px 10px; }
-.dd-stat-val { font-family: var(--hud); font-size: 15px; font-weight: 700; }
-.dd-stat-label { font-size: 8px; color: var(--muted); letter-spacing: 1px; margin-top: 2px; }
-
-.chart-small { max-height: 100px; margin-bottom: 10px; }
-
-/* ── LOADING / PLACEHOLDER ── */
-#loading-overlay {
-  position: fixed; inset: 0; background: rgba(6,8,13,0.9);
-  display: none; align-items: center; justify-content: center; flex-direction: column; gap: 16px;
-  z-index: 1000;
-}
-#loading-overlay.show { display: flex; }
-.loading-text { font-family: var(--hud); font-size: 11px; letter-spacing: 3px; color: var(--red); animation: blink 0.8s infinite; }
-.loading-track { width: 260px; height: 2px; background: var(--line); border-radius: 1px; overflow: hidden; }
-.loading-fill { height: 100%; background: linear-gradient(90deg, var(--red), var(--amber)); animation: loading-sweep 1.4s ease-in-out infinite; }
-
-#placeholder {
-  display: flex; align-items: center; justify-content: center;
-  flex-direction: column; gap: 12px; height: 100%;
-  color: var(--muted); text-align: center;
-}
-.ph-icon { font-size: 36px; opacity: 0.2; }
-.ph-text { font-family: var(--hud); font-size: 11px; letter-spacing: 2px; }
-
-@keyframes pulse   { 0%,100%{opacity:1;} 50%{opacity:0.3;} }
-@keyframes blink   { 0%,100%{opacity:1;} 50%{opacity:0.15;} }
-@keyframes loading-sweep {
-  0%   { width:0%;  margin-left:0%; }
-  50%  { width:55%; margin-left:22%; }
-  100% { width:0%;  margin-left:100%; }
-}
-@keyframes fadeIn  { from{opacity:0;transform:translateY(6px);} to{opacity:1;transform:none;} }
-
-.fade-in { animation: fadeIn 0.3s ease-out; }
-
-::-webkit-scrollbar { width: 4px; }
-::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: var(--line2); border-radius: 2px; }
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:.3;}}
+@keyframes blink{0%,100%{opacity:1;}50%{opacity:.15;}}
+@keyframes fadeUp{from{opacity:0;transform:translateX(-50%) translateY(8px);}to{opacity:1;transform:translateX(-50%) translateY(0);}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:none;}}
+@keyframes corner-pulse{0%,100%{opacity:1;}50%{opacity:.5;}}
+.fade-in{animation:fadeIn .3s ease-out;}
+::-webkit-scrollbar{width:4px;}
+::-webkit-scrollbar-thumb{background:var(--line2);border-radius:2px;}
 </style>
 </head>
 <body>
-
 <div id="loading-overlay">
   <div class="loading-text" id="loading-text">INITIALIZING</div>
-  <div class="loading-track">
-    <div class="loading-fill" id="loading-fill" style="animation:none;width:0%;transition:width 0.4s ease"></div>
-  </div>
+  <div class="loading-track"><div id="loading-fill"></div></div>
   <div id="loading-msg" style="font-family:var(--mono);font-size:10px;color:var(--muted);margin-top:8px;letter-spacing:1px;max-width:340px;text-align:center"></div>
-  <div style="font-family:var(--mono);font-size:9px;color:var(--dim);margin-top:6px">FIRST LOAD TAKES ~2 MIN · CACHED FOREVER AFTER</div>
+  <div style="font-family:var(--mono);font-size:9px;color:var(--dim);margin-top:6px">FIRST LOAD: ~2 MIN · CACHED FOREVER AFTER</div>
 </div>
 
 <div id="app">
-
-  <!-- TOPBAR -->
   <div id="topbar">
     <div class="logo">F1 <span>RACE INTELLIGENCE</span></div>
     <div class="controls">
-      <select id="sel-year">
-        <option value="2026">2026</option>
-        <option value="2025">2025</option>
-        <option value="2024">2024</option>
-      </select>
+      <select id="sel-year"><option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option></select>
       <select id="sel-circuit">
         <option value="Australia">AUSTRALIA GP</option>
         <option value="China">CHINA GP</option>
@@ -372,9 +208,8 @@ select:focus { outline: none; border-color: var(--red); }
   <div id="left">
     <div class="panel-label">DRIVERS</div>
     <div id="driver-list">
-      <div id="placeholder" style="height:200px">
-        <div class="ph-icon">🏎</div>
-        <div class="ph-text">LOAD RACE DATA</div>
+      <div style="padding:40px 16px;text-align:center;color:var(--muted)">
+        <div style="font-family:var(--hud);font-size:10px;letter-spacing:2px">LOAD RACE DATA</div>
       </div>
     </div>
   </div>
@@ -383,11 +218,20 @@ select:focus { outline: none; border-color: var(--red); }
   <div id="center">
     <div id="track-area">
       <div id="track-svg-wrap">
-        <div id="placeholder-center" style="text-align:center;color:var(--muted)">
+        <div style="text-align:center;color:var(--muted)">
           <div style="font-family:var(--hud);font-size:11px;letter-spacing:2px">SELECT CIRCUIT AND ANALYZE</div>
         </div>
       </div>
+
+      <!-- Toggle pills -->
+      <div id="view-toggle" style="display:none;position:absolute;top:14px;right:16px;">
+        <button class="view-pill active" id="pill-corners" onclick="setView('corners')">CORNERS</button>
+        <button class="view-pill" id="pill-positions" style="display: hide;" onclick="setView('positions')">POSITIONS</button>
+      </div>
+
       <div id="impact-badge"></div>
+
+      <!-- Corner inspector -->
       <div id="corner-inspector">
         <div class="ci-header">
           <div class="ci-title" id="ci-title">T1</div>
@@ -402,20 +246,14 @@ select:focus { outline: none; border-color: var(--red); }
           </div>
         </div>
         <div class="ci-stats">
-          <div class="ci-stat">
-            <div class="ci-stat-val" id="ci-speed" style="color:var(--cyan)">—</div>
-            <div class="ci-stat-label">KM/H</div>
-          </div>
-          <div class="ci-stat">
-            <div class="ci-stat-val" id="ci-throttle" style="color:var(--green)">—</div>
-            <div class="ci-stat-label">THROTTLE</div>
-          </div>
-          <div class="ci-stat">
-            <div class="ci-stat-val" id="ci-brake" style="color:var(--amber)">—</div>
-            <div class="ci-stat-label">BRAKE</div>
-          </div>
+          <div class="ci-stat"><div class="ci-stat-val" id="ci-speed" style="color:var(--cyan)">—</div><div class="ci-stat-label">KM/H</div></div>
+          <div class="ci-stat"><div class="ci-stat-val" id="ci-throttle" style="color:var(--green)">—</div><div class="ci-stat-label">THROTTLE</div></div>
+          <div class="ci-stat"><div class="ci-stat-val" id="ci-brake" style="color:var(--amber)">—</div><div class="ci-stat-label">BRAKE</div></div>
         </div>
       </div>
+
+      <!-- Position view legend -->
+      <div id="pos-legend"></div>
     </div>
 
     <div id="scrubber">
@@ -431,159 +269,38 @@ select:focus { outline: none; border-color: var(--red); }
       <div class="section-title">WIN PROBABILITY</div>
       <canvas id="chart-win-prob"></canvas>
     </div>
-    <div class="right-section" id="rankings-section">
-      <div class="section-title">STANDINGS</div>
-      <div id="rankings-list"></div>
+    <div class="right-section">
+      <div class="section-title">DRIVER DETAIL</div>
+      <div id="driver-click-prompt">
+        <div style="font-size:28px;opacity:.15;margin-bottom:10px">👆</div>
+        <div style="font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:1px;line-height:1.8">
+          CLICK ANY DRIVER<br>ON THE LEFT TO<br>INSPECT THEIR DATA
+        </div>
+      </div>
     </div>
-    <div id="driver-detail-panel" style="display:none"></div>
+    <div id="driver-detail-panel"></div>
   </div>
-
 </div>
 
 <script>
 // ── STATE ──────────────────────────────────────────────────────────────────
-let G = null;             // global data
+let G = null;
 let currentLap = 0;
 let playInterval = null;
 let selectedCorner = null;
 let selectedDriver = null;
+let currentView = 'corners';   // 'corners' | 'positions'
 let winProbChart = null;
+let lapTimeChart = null;
+let cornerScoreChart = null;
 
-// ── Australia SVG track path (Albert Park, simplified but recognizable) ──
-const AUSTRALIA_SVG = `
-<svg viewBox="0 0 600 500" xmlns="http://www.w3.org/2000/svg">
-  <defs>
-    <filter id="glow">
-      <feGaussianBlur stdDeviation="2" result="blur"/>
-      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
-  </defs>
-  <!-- Albert Park circuit approximation -->
-  <path class="track-outline" d="
-    M 300 60
-    L 460 60
-    Q 510 60 510 110
-    L 510 160
-    Q 510 190 480 200
-    L 430 210
-    Q 400 215 390 240
-    L 385 280
-    Q 382 310 360 325
-    L 320 340
-    Q 290 352 280 375
-    L 278 410
-    Q 276 435 255 445
-    L 210 450
-    Q 185 450 175 430
-    L 170 400
-    Q 168 380 150 370
-    L 120 360
-    Q 95 350 90 325
-    L 88 290
-    Q 86 265 105 250
-    L 140 235
-    Q 162 225 165 200
-    L 165 155
-    Q 165 130 145 118
-    L 120 108
-    Q 100 100 100 80
-    Q 100 58 125 55
-    L 190 55
-    Q 220 55 230 75
-    L 250 58
-    Q 270 48 300 60
-  " />
-  <path class="track-inner" d="
-    M 300 60
-    L 460 60
-    Q 510 60 510 110
-    L 510 160
-    Q 510 190 480 200
-    L 430 210
-    Q 400 215 390 240
-    L 385 280
-    Q 382 310 360 325
-    L 320 340
-    Q 290 352 280 375
-    L 278 410
-    Q 276 435 255 445
-    L 210 450
-    Q 185 450 175 430
-    L 170 400
-    Q 168 380 150 370
-    L 120 360
-    Q 95 350 90 325
-    L 88 290
-    Q 86 265 105 250
-    L 140 235
-    Q 162 225 165 200
-    L 165 155
-    Q 165 130 145 118
-    L 120 108
-    Q 100 100 100 80
-    Q 100 58 125 55
-    L 190 55
-    Q 220 55 230 75
-    L 250 58
-    Q 270 48 300 60
-  " />
-  <path class="track-center" d="
-    M 300 60
-    L 460 60
-    Q 510 60 510 110
-    L 510 160
-    Q 510 190 480 200
-    L 430 210
-    Q 400 215 390 240
-    L 385 280
-    Q 382 310 360 325
-    L 320 340
-    Q 290 352 280 375
-    L 278 410
-    Q 276 435 255 445
-    L 210 450
-    Q 185 450 175 430
-    L 170 400
-    Q 168 380 150 370
-    L 120 360
-    Q 95 350 90 325
-    L 88 290
-    Q 86 265 105 250
-    L 140 235
-    Q 162 225 165 200
-    L 165 155
-    Q 165 130 145 118
-    L 120 108
-    Q 100 100 100 80
-    Q 100 58 125 55
-    L 190 55
-    Q 220 55 230 75
-    L 250 58
-    Q 270 48 300 60
-  " />
-  <!-- Corner markers group -->
-  <g id="corner-markers"></g>
-</svg>`;
+// Track data — populated from GPS after analyze()
+// Falls back to null (no track rendered) if OpenF1 unreachable
+let TRACK_DATA = null;   // {path, points, corners, viewBox}
 
-// Corner positions on the SVG (x, y, label offset dx, dy)
-const CORNER_POSITIONS = {
-  "T1":  {x:300, y:60,  dx:0,   dy:-14},
-  "T2":  {x:460, y:60,  dx:14,  dy:-10},
-  "T3":  {x:510, y:110, dx:14,  dy:0},
-  "T4":  {x:510, y:160, dx:14,  dy:0},
-  "T5":  {x:480, y:200, dx:14,  dy:0},
-  "T6":  {x:390, y:240, dx:8,   dy:-12},
-  "T7":  {x:385, y:280, dx:14,  dy:0},
-  "T8":  {x:360, y:325, dx:10,  dy:-12},
-  "T9":  {x:280, y:375, dx:10,  dy:12},
-  "T10": {x:278, y:410, dx:14,  dy:0},
-  "T11": {x:210, y:450, dx:0,   dy:14},
-  "T12": {x:150, y:370, dx:-16, dy:0},
-  "T13": {x:88,  y:290, dx:-20, dy:0},
-  "T14": {x:140, y:235, dx:-20, dy:0},
-  "T15": {x:165, y:155, dx:-20, dy:0},
-  "T16": {x:120, y:80,  dx:-14, dy:-10},
-};
+// GPS corner lookup built from TRACK_DATA.corners
+let GPS_CORNER_POS = {};      // {T1: {x,y,lx,ly}, ...}
+let TRACK_POSITIONS_XY = [];  // [{x,y}] one per race position slot (20 entries)
 
 // ── ANALYZE ────────────────────────────────────────────────────────────────
 async function analyze() {
@@ -597,34 +314,49 @@ async function analyze() {
   document.getElementById('loading-overlay').classList.add('show');
   setLoadingProgress(0, 'CONNECTING TO OPENF1...');
 
-  // Start SSE progress stream
   let evtSource = null;
   try {
     evtSource = new EventSource('/api/progress');
-    evtSource.onmessage = (e) => {
+    evtSource.onmessage = e => {
       const d = JSON.parse(e.data);
       setLoadingProgress(d.pct, d.message);
       if (d.status === 'done') { evtSource.close(); evtSource = null; }
     };
-    evtSource.onerror = () => { if (evtSource) { evtSource.close(); evtSource = null; } };
-  } catch(e) { /* SSE not critical */ }
+    evtSource.onerror = () => { if(evtSource){evtSource.close();evtSource=null;} };
+  } catch(e){}
 
   try {
-    const res = await fetch(`/api/analyze?year=${year}&circuit=${circuit}`);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    G = await res.json();
-    currentLap = 0;
-    selectedCorner = null;
-    selectedDriver = null;
+    // Step 1: fetch track GPS layout
+    setLoadingProgress(3, 'FETCHING TRACK LAYOUT...');
+    let trackData = null;
+    try {
+      const trackRes = await fetch(`/api/track?circuit=${circuit}&year=2024`);
+      console.log('[track] status:', trackRes.status);
+      if (trackRes.ok) {
+        trackData = await trackRes.json();
+        console.log('[track] data:', trackData ? `${trackData.points?.length} pts` : 'null');
+      }
+    } catch(te) {
+      console.warn('[track] fetch failed:', te);
+    }
+
+    // Step 2: fetch race analysis (SSE progress already streaming)
+    setLoadingProgress(5, 'LOADING RACE DATA...');
+    const raceRes = await fetch(`/api/analyze?year=${year}&circuit=${circuit}`);
+    if (!raceRes.ok) throw new Error(`HTTP ${raceRes.status}`);
+    G = await raceRes.json();
+    if (G.error) throw new Error(`OpenF1: ${G.error}`);
+    G._track = trackData;
+
+    currentLap = 0; selectedCorner = null; selectedDriver = null; currentView = 'corners';
     setLoadingProgress(100, 'DONE');
     initUI();
     dot.className = 'dot live';
   } catch(e) {
-    console.error(e);
     dot.className = 'dot';
     alert('Analysis failed — is Flask running?\n' + e.message);
   } finally {
-    if (evtSource) { evtSource.close(); }
+    if (evtSource) evtSource.close();
     btn.disabled = false;
     document.getElementById('loading-overlay').classList.remove('show');
   }
@@ -633,27 +365,56 @@ async function analyze() {
 function setLoadingProgress(pct, msg) {
   const fill = document.getElementById('loading-fill');
   const msgEl = document.getElementById('loading-msg');
-  const txt = document.getElementById('loading-text');
+  const txt   = document.getElementById('loading-text');
   if (fill)  fill.style.width = pct + '%';
   if (msgEl) msgEl.textContent = msg.toUpperCase();
   if (txt)   txt.textContent = pct < 100 ? `LOADING  ${pct}%` : 'COMPLETE';
 }
 
-// ── INIT UI ────────────────────────────────────────────────────────────────
+// ── INIT ───────────────────────────────────────────────────────────────────
 function initUI() {
   renderDriverList();
-  renderTrack();
+  renderTrackSVG();
   setupScrubber();
   renderWinProbChart();
-  renderRankings();
-  setLap(0);
   showImpactBadge();
+  document.getElementById('view-toggle').style.display = 'flex';
+  setView('corners');
+  setLap(0);
 }
 
 function showImpactBadge() {
   const b = document.getElementById('impact-badge');
   b.style.display = 'block';
   b.innerHTML = `⚡ HIGHEST IMPACT CORNER: <b>${G.most_impactful_corner}</b>`;
+}
+
+// ── VIEW TOGGLE ────────────────────────────────────────────────────────────
+function setView(view) {
+  currentView = view;
+  document.getElementById('pill-corners').classList.toggle('active', view==='corners');
+  document.getElementById('pill-positions').classList.toggle('active', view==='positions');
+
+  const cornerEls = document.querySelectorAll('.corner-dot, .corner-label');
+  const driverEls = document.querySelectorAll('.driver-pos-marker, .driver-pos-label');
+  const impactBadge = document.getElementById('impact-badge');
+  const posLegend   = document.getElementById('pos-legend');
+
+  if (view === 'corners') {
+    cornerEls.forEach(el => el.style.display = '');
+    driverEls.forEach(el => el.style.display = 'none');
+    impactBadge.style.display = 'block';
+    posLegend.style.display   = 'none';
+    document.getElementById('corner-inspector').classList.remove('show');
+  } else {
+    cornerEls.forEach(el => el.style.display = 'none');
+    driverEls.forEach(el => el.style.display = '');
+    impactBadge.style.display = 'none';
+    posLegend.style.display   = 'block';
+    document.getElementById('corner-inspector').classList.remove('show');
+    updatePositionMarkers(currentLap);
+    updatePosLegend(currentLap);
+  }
 }
 
 // ── DRIVER LIST ────────────────────────────────────────────────────────────
@@ -674,68 +435,184 @@ function renderDriverList() {
         <div class="dr-code">${r.driver}</div>
         <div class="dr-name">${d.name}</div>
       </div>
-      <div class="dr-prob" id="prob-${r.driver}">${pct}%</div>
-      <div class="dr-bar"></div>
-    `;
+      <div class="dr-right">
+        <div class="dr-prob" id="prob-${r.driver}">${pct}%</div>
+        <div class="dr-pos" id="posdisp-${r.driver}">P—</div>
+      </div>`;
     list.appendChild(row);
   });
 }
 
 // ── TRACK SVG ──────────────────────────────────────────────────────────────
-function renderTrack() {
+function renderTrackSVG() {
   const wrap = document.getElementById('track-svg-wrap');
-  wrap.innerHTML = AUSTRALIA_SVG;
+  TRACK_DATA = G._track;
 
-  const svg = wrap.querySelector('svg');
-  const markersGroup = svg.getElementById('corner-markers');
+  if (!TRACK_DATA || !TRACK_DATA.path) {
+    wrap.innerHTML = `<div style="text-align:center;color:var(--muted);padding:40px">
+      <div style="font-family:var(--hud);font-size:10px;letter-spacing:2px">TRACK LAYOUT UNAVAILABLE</div>
+      <div style="font-family:var(--mono);font-size:9px;margin-top:8px">OpenF1 location API unreachable</div>
+    </div>`;
+    return;
+  }
 
+  // Build GPS corner lookup
+  GPS_CORNER_POS = {};
+  TRACK_DATA.corners.forEach(c => { GPS_CORNER_POS[c.name] = c; });
+
+  // Build evenly-spaced position slots from the GPS points (20 slots for P1-P20)
+  const pts = TRACK_DATA.points;
+  TRACK_POSITIONS_XY = [];
+  for (let i = 0; i < 20; i++) {
+    const idx = Math.floor(i * pts.length / 20);
+    TRACK_POSITIONS_XY.push({x: pts[idx][0], y: pts[idx][1]});
+  }
+
+  // Build SVG
+  const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+  svg.setAttribute('viewBox', TRACK_DATA.viewBox || '0 0 600 500');
+  svg.style.cssText = 'max-width:88%;max-height:88%;filter:drop-shadow(0 0 30px rgba(0,212,255,.06))';
+
+  svg.innerHTML = `
+    <defs>
+      <filter id="glow"><feGaussianBlur stdDeviation="2" result="b"/>
+        <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+      </filter>
+    </defs>
+    <path class="track-outline" d="${TRACK_DATA.path}"/>
+    <path class="track-inner"   d="${TRACK_DATA.path}"/>
+    <path class="track-center"  d="${TRACK_DATA.path}"/>
+  `;
+
+  const cg = makeSVGEl('g', {id:'corner-markers'});
+  const dg = makeSVGEl('g', {id:'driver-markers'});
+  svg.appendChild(cg);
+  svg.appendChild(dg);
+
+  // Corner markers from GPS positions
   G.corners.forEach(cn => {
-    const pos = CORNER_POSITIONS[cn];
+    const pos = GPS_CORNER_POS[cn];
     if (!pos) return;
-
     const isImpact = cn === G.most_impactful_corner;
     const color = isImpact ? '#f5a623' : '#1e4060';
 
-    // Dot
-    const circle = document.createElementNS('http://www.w3.org/2000/svg','circle');
-    circle.setAttribute('cx', pos.x); circle.setAttribute('cy', pos.y);
-    circle.setAttribute('r', 6);
-    circle.setAttribute('fill', color);
-    circle.setAttribute('class', 'corner-dot');
-    circle.setAttribute('id', `cdot-${cn}`);
+    const circle = makeSVGEl('circle',{cx:pos.x, cy:pos.y, r:6, fill:color,
+      class:'corner-dot', id:`cdot-${cn}`});
     circle.style.setProperty('--c-color', color);
-    circle.addEventListener('click', () => selectCorner(cn));
+    circle.addEventListener('click', () => currentView==='corners' && selectCorner(cn));
 
-    // Label
-    const text = document.createElementNS('http://www.w3.org/2000/svg','text');
-    text.setAttribute('x', pos.x + pos.dx); text.setAttribute('y', pos.y + pos.dy);
-    text.setAttribute('text-anchor', 'middle');
-    text.setAttribute('class', 'corner-label');
-    text.setAttribute('id', `clabel-${cn}`);
+    const text = makeSVGEl('text',{x:pos.lx, y:pos.ly,
+      'text-anchor':'middle', class:'corner-label', id:`clabel-${cn}`});
     text.textContent = cn;
-
-    markersGroup.appendChild(circle);
-    markersGroup.appendChild(text);
+    cg.appendChild(circle);
+    cg.appendChild(text);
   });
+
+  // Driver position markers
+  Object.entries(G.drivers).forEach(([code, d]) => {
+    const g = makeSVGEl('g',{class:'driver-pos-marker', id:`dmarker-${code}`, style:'display:none'});
+    g.addEventListener('click', () => selectDriver(code));
+    const circle = makeSVGEl('circle',{r:9, fill:d.color,
+      'fill-opacity':'0.92', stroke:'#0a0f18', 'stroke-width':'1.5', filter:'url(#glow)'});
+    const label = makeSVGEl('text',{'text-anchor':'middle','dominant-baseline':'central',
+      class:'driver-pos-label', fill:'#fff', style:'font-size:7px;font-weight:700'});
+    label.textContent = code.slice(0,3);
+    g.appendChild(circle);
+    g.appendChild(label);
+    dg.appendChild(g);
+    const posLbl = makeSVGEl('text',{class:'driver-pos-label', id:`dpos-${code}`,
+      'text-anchor':'middle', fill:d.color, style:'font-size:8px;display:none'});
+    dg.appendChild(posLbl);
+  });
+
+  wrap.innerHTML = '';
+  wrap.appendChild(svg);
+}
+
+function makeSVGEl(tag, attrs) {
+  const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  for (const [k,v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+
+// ── POSITION MARKERS ───────────────────────────────────────────────────────
+function updatePositionMarkers(lapIdx) {
+  if (!G) return;
+  // Build position → driver map for this lap
+  const posMap = {};
+  Object.entries(G.drivers).forEach(([code, d]) => {
+    const pt = d.pos_timeline && d.pos_timeline[lapIdx];
+    const pos = pt ? pt.position : null;
+    if (pos) posMap[pos] = {code, color: d.color};
+  });
+
+  Object.entries(G.drivers).forEach(([code, d]) => {
+    const marker = document.getElementById(`dmarker-${code}`);
+    const posLbl = document.getElementById(`dpos-${code}`);
+    if (!marker) return;
+
+    const pt  = d.pos_timeline && d.pos_timeline[lapIdx];
+    const pos = pt ? pt.position : null;
+
+    if (!pos || pos < 1 || pos > 20) {
+      marker.style.display = 'none';
+      if (posLbl) posLbl.style.display = 'none';
+      return;
+    }
+
+    const xy = TRACK_POSITIONS_XY[pos - 1] || TRACK_POSITIONS_XY[0];
+    // Small offset per driver to avoid exact overlap when two are in same zone
+    const jitter = ((code.charCodeAt(0) * 7) % 6) - 3;
+    const cx = xy.x + jitter;
+    const cy = xy.y + jitter;
+
+    marker.setAttribute('transform', `translate(${cx},${cy})`);
+    marker.style.display = '';
+    if (posLbl) {
+      posLbl.setAttribute('x', cx);
+      posLbl.setAttribute('y', cy - 15);
+      posLbl.textContent = `P${pos}`;
+      posLbl.style.display = '';
+    }
+  });
+}
+
+function updatePosLegend(lapIdx) {
+  const leg = document.getElementById('pos-legend');
+  // Show top 8 by current position
+  const sorted = Object.entries(G.drivers)
+    .map(([code, d]) => {
+      const pt  = d.pos_timeline && d.pos_timeline[lapIdx];
+      const gap = pt ? pt.gap : null;
+      const pos = pt ? pt.position : 99;
+      return {code, color: d.color, name: d.name, pos, gap};
+    })
+    .filter(x => x.pos)
+    .sort((a,b) => a.pos - b.pos)
+    .slice(0, 8);
+
+  leg.innerHTML = `<div style="font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:8px">TOP 8 — LAP ${lapIdx+1}</div>` +
+    sorted.map(r => {
+      const gapStr = r.pos === 1 ? 'LEADER' : (r.gap != null ? `+${r.gap.toFixed(1)}s` : '—');
+      return `<div class="pos-legend-row">
+        <div class="pos-dot" style="background:${r.color}"></div>
+        <span style="font-family:var(--hud);font-size:9px;color:${r.color};width:14px">P${r.pos}</span>
+        <span style="font-family:var(--mono);font-size:9px;flex:1">${r.code}</span>
+        <span style="font-family:var(--mono);font-size:9px;color:var(--muted)">${gapStr}</span>
+      </div>`;
+    }).join('');
 }
 
 // ── SCRUBBER ───────────────────────────────────────────────────────────────
 function setupScrubber() {
   const slider = document.getElementById('lap-slider');
-  const maxLap = G.bayesian_timeline.length - 1;
-  slider.max = maxLap;
+  slider.max   = G.bayesian_timeline.length - 1;
   slider.value = 0;
 }
 
-function onScrub(val) {
-  if (playInterval) stopPlay();
-  setLap(parseInt(val));
-}
+function onScrub(val) { if(playInterval) stopPlay(); setLap(parseInt(val)); }
 
-function togglePlay() {
-  if (playInterval) stopPlay();
-  else startPlay();
-}
+function togglePlay() { playInterval ? stopPlay() : startPlay(); }
 
 function startPlay() {
   const btn = document.getElementById('play-btn');
@@ -745,7 +622,7 @@ function startPlay() {
   playInterval = setInterval(() => {
     if (currentLap >= maxLap) { stopPlay(); return; }
     setLap(currentLap + 1);
-  }, 600);
+  }, 500);
 }
 
 function stopPlay() {
@@ -757,47 +634,60 @@ function stopPlay() {
 function setLap(lapIdx) {
   currentLap = lapIdx;
   document.getElementById('lap-slider').value = lapIdx;
-  const snap = G.bayesian_timeline[lapIdx];
+  const snap   = G.bayesian_timeline[lapIdx];
   const maxLap = G.bayesian_timeline.length;
   document.getElementById('lap-counter').textContent = `LAP ${snap.lap}`;
-  document.getElementById('lap-label').textContent = `LAP ${snap.lap} / ${maxLap}`;
+  document.getElementById('lap-label').textContent   = `LAP ${snap.lap} / ${maxLap}`;
 
-  updateDriverProbs(snap);
-  updateRankings(snap);
-  updateWinProbChart(lapIdx);
-  updateCornerDots(lapIdx);
-  if (selectedCorner) updateInspector(selectedCorner, lapIdx);
+  updateDriverList(snap, lapIdx);
+  if (currentView === 'corners')   updateCornerDots(lapIdx);
+  if (currentView === 'positions') { updatePositionMarkers(lapIdx); updatePosLegend(lapIdx); }
+  if (selectedCorner && currentView === 'corners') updateInspector(selectedCorner, lapIdx);
   if (selectedDriver) updateDriverDetail(selectedDriver);
 }
 
-// ── UPDATE DRIVER PROBS (left panel) ──────────────────────────────────────
-function updateDriverProbs(snap) {
-  Object.keys(G.drivers).forEach(code => {
-    const el = document.getElementById(`prob-${code}`);
-    if (el) el.textContent = ((snap[code] || 0) * 100).toFixed(1) + '%';
+// ── DRIVER LIST UPDATE ─────────────────────────────────────────────────────
+function updateDriverList(snap, lapIdx) {
+  // Re-sort rows by current win probability
+  const sorted = Object.keys(G.drivers)
+    .map(d => ({code:d, prob:snap[d]||0}))
+    .sort((a,b) => b.prob - a.prob);
+
+  const list = document.getElementById('driver-list');
+  sorted.forEach((r, rank) => {
+    const el    = document.getElementById(`dr-${r.code}`);
+    const prob  = document.getElementById(`prob-${r.code}`);
+    const posEl = document.getElementById(`posdisp-${r.code}`);
+    if (!el) return;
+    if (prob) prob.textContent = (r.prob*100).toFixed(1)+'%';
+
+    // Show current race position in left panel
+    const pt  = G.drivers[r.code].pos_timeline && G.drivers[r.code].pos_timeline[lapIdx];
+    const pos = pt ? pt.position : null;
+    if (posEl) posEl.textContent = pos ? `P${pos}` : 'P—';
+
+    // Re-order in DOM
+    list.appendChild(el);
   });
 }
 
 // ── CORNER DOTS ───────────────────────────────────────────────────────────
 function updateCornerDots(lapIdx) {
-  // Color corner dots by who wins them at this lap
   G.corners.forEach(cn => {
     const dot = document.getElementById(`cdot-${cn}`);
     if (!dot) return;
     const winner = cornerWinnerAtLap(cn, lapIdx);
-    const color = winner ? G.drivers[winner].color : '#1e4060';
+    const color  = winner ? G.drivers[winner].color : '#1e4060';
     dot.setAttribute('fill', color);
     dot.style.setProperty('--c-color', color);
   });
 }
 
 function cornerWinnerAtLap(cn, lapIdx) {
-  // Find driver with best corner execution score at this lap index
   let best = null, bestScore = -Infinity;
   Object.entries(G.drivers).forEach(([code, d]) => {
     if (lapIdx < d.laps.length) {
-      const lap = d.laps[lapIdx];
-      const c = lap.corners.find(x => x.corner === cn);
+      const c = d.laps[lapIdx].corners.find(x => x.corner === cn);
       if (c && c.score > bestScore) { bestScore = c.score; best = code; }
     }
   });
@@ -807,41 +697,32 @@ function cornerWinnerAtLap(cn, lapIdx) {
 // ── CORNER INSPECTOR ──────────────────────────────────────────────────────
 function selectCorner(cn) {
   if (selectedCorner) {
-    const old = document.getElementById(`cdot-${selectedCorner}`);
-    const oldL = document.getElementById(`clabel-${selectedCorner}`);
-    if (old) old.classList.remove('active');
-    if (oldL) oldL.classList.remove('active');
+    document.getElementById(`cdot-${selectedCorner}`)?.classList.remove('active-corner');
+    document.getElementById(`clabel-${selectedCorner}`)?.classList.remove('active-corner');
   }
   selectedCorner = cn;
-  const dot = document.getElementById(`cdot-${cn}`);
-  const lbl = document.getElementById(`clabel-${cn}`);
-  if (dot) dot.classList.add('active');
-  if (lbl) lbl.classList.add('active');
+  document.getElementById(`cdot-${cn}`)?.classList.add('active-corner');
+  document.getElementById(`clabel-${cn}`)?.classList.add('active-corner');
   updateInspector(cn, currentLap);
   document.getElementById('corner-inspector').classList.add('show');
 }
 
 function updateInspector(cn, lapIdx) {
   document.getElementById('ci-title').textContent = cn;
-  const snap = G.bayesian_timeline[lapIdx];
-  document.getElementById('ci-lap').textContent = `LAP ${snap.lap}`;
-
+  document.getElementById('ci-lap').textContent = `LAP ${G.bayesian_timeline[lapIdx]?.lap || '—'}`;
   const winner = cornerWinnerAtLap(cn, lapIdx);
   if (!winner) return;
-  const d = G.drivers[winner];
+  const d   = G.drivers[winner];
   const lap = d.laps[lapIdx];
-  const c = lap ? lap.corners.find(x => x.corner === cn) : null;
-
-  const wr = document.getElementById('ci-winner-row');
-  wr.style.setProperty('--winner-color', d.color);
+  const c   = lap?.corners.find(x => x.corner === cn);
+  document.getElementById('ci-winner-row').style.setProperty('--winner-color', d.color);
   document.getElementById('ci-winner-code').textContent = winner;
   document.getElementById('ci-winner-code').style.color = d.color;
   document.getElementById('ci-winner-name').textContent = d.name;
-
   if (c) {
     document.getElementById('ci-speed').textContent    = c.speed.toFixed(0);
-    document.getElementById('ci-throttle').textContent = (c.throttle * 100).toFixed(0) + '%';
-    document.getElementById('ci-brake').textContent    = (c.brake * 100).toFixed(0) + '%';
+    document.getElementById('ci-throttle').textContent = (c.throttle*100).toFixed(0)+'%';
+    document.getElementById('ci-brake').textContent    = (c.brake*100).toFixed(0)+'%';
   }
 }
 
@@ -849,8 +730,8 @@ function closeInspector() {
   document.getElementById('corner-inspector').classList.remove('show');
   selectedCorner = null;
   G.corners.forEach(cn => {
-    const el = document.getElementById(`clabel-${cn}`);
-    if (el) el.classList.remove('active');
+    document.getElementById(`clabel-${cn}`)?.classList.remove('active-corner');
+    document.getElementById(`cdot-${cn}`)?.classList.remove('active-corner');
   });
 }
 
@@ -858,79 +739,34 @@ function closeInspector() {
 function renderWinProbChart() {
   const ctx = document.getElementById('chart-win-prob').getContext('2d');
   if (winProbChart) winProbChart.destroy();
-
-  const timeline = G.bayesian_timeline;
-  const labels = timeline.map(t => `L${t.lap}`);
-  const topDrivers = G.final_ranking.slice(0, 6);
-
+  const tl       = G.bayesian_timeline;
+  const labels   = tl.map(t => `L${t.lap}`);
+  const topDrivers = G.final_ranking.slice(0,6);
   winProbChart = new Chart(ctx, {
-    type: 'line',
-    data: {
+    type:'line',
+    data:{
       labels,
       datasets: topDrivers.map(r => ({
         label: r.driver,
-        data: timeline.map(t => ((t[r.driver] || 0) * 100).toFixed(1)),
+        data:  tl.map(t => ((t[r.driver]||0)*100).toFixed(1)),
         borderColor: G.drivers[r.driver].color,
-        backgroundColor: 'transparent',
-        borderWidth: 1.5, pointRadius: 0, tension: 0.4,
+        backgroundColor:'transparent',
+        borderWidth:1.5, pointRadius:0, tension:0.4,
       }))
     },
-    options: {
-      responsive: true, maintainAspectRatio: true,
-      animation: false,
-      plugins: {
-        legend: { display: true, labels: { color: '#4a6680', font: { family: 'JetBrains Mono', size: 8 }, boxWidth: 8, padding: 8 } },
-        tooltip: { backgroundColor: '#0a0f18', borderColor: '#1a2535', borderWidth: 1,
-          titleFont: { family: 'JetBrains Mono', size: 9 }, bodyFont: { family: 'JetBrains Mono', size: 9 },
-          titleColor: '#dce8f5', bodyColor: '#4a6680' }
+    options:{
+      responsive:true, maintainAspectRatio:true, animation:false,
+      plugins:{
+        legend:{display:true,labels:{color:'#4a6680',font:{family:'JetBrains Mono',size:8},boxWidth:8,padding:6}},
+        tooltip:{backgroundColor:'#0a0f18',borderColor:'#1a2535',borderWidth:1,
+          titleFont:{family:'JetBrains Mono',size:9},bodyFont:{family:'JetBrains Mono',size:9},
+          titleColor:'#dce8f5',bodyColor:'#4a6680'}
       },
-      scales: {
-        x: { ticks: { color: '#4a6680', font: { family: 'JetBrains Mono', size: 8 }, maxTicksLimit: 6 }, grid: { color: '#1a2535' } },
-        y: { ticks: { color: '#4a6680', font: { family: 'JetBrains Mono', size: 8 }, callback: v => v + '%' }, grid: { color: '#1a2535' }, min: 0 }
+      scales:{
+        x:{ticks:{color:'#4a6680',font:{family:'JetBrains Mono',size:8},maxTicksLimit:8},grid:{color:'#1a2535'}},
+        y:{ticks:{color:'#4a6680',font:{family:'JetBrains Mono',size:8},callback:v=>v+'%'},grid:{color:'#1a2535'},min:0}
       }
     }
-  });
-}
-
-// Draw a vertical line at current lap
-function updateWinProbChart(lapIdx) {
-  if (!winProbChart) return;
-  // Highlight current lap point via annotation-free approach: just keep chart static
-  // (full re-render would be too slow; chart already shows full trajectory)
-}
-
-// ── RANKINGS ──────────────────────────────────────────────────────────────
-function renderRankings() {
-  updateRankings(G.bayesian_timeline[0]);
-}
-
-function updateRankings(snap) {
-  const list = document.getElementById('rankings-list');
-  const sorted = Object.keys(G.drivers)
-    .map(d => ({code: d, prob: snap[d] || 0}))
-    .sort((a,b) => b.prob - a.prob);
-
-  const maxProb = sorted[0].prob || 1;
-
-  list.innerHTML = '';
-  sorted.forEach((r, idx) => {
-    const d = G.drivers[r.code];
-    const pct = (r.prob * 100).toFixed(1);
-    const posClass = idx === 0 ? 'p1' : idx === 1 ? 'p2' : idx === 2 ? 'p3' : '';
-    const barW = ((r.prob / maxProb) * 100).toFixed(1);
-
-    const row = document.createElement('div');
-    row.className = 'pos-row';
-    row.style.cursor = 'pointer';
-    row.onclick = () => selectDriver(r.code);
-    row.innerHTML = `
-      <div class="pos-num ${posClass}">${idx+1}</div>
-      <div class="dr-swatch" style="--driver-color:${d.color};background:${d.color}"></div>
-      <div class="pos-name" style="font-size:10px">${r.code}</div>
-      <div class="pos-bar-wrap"><div class="pos-bar"><div class="pos-bar-fill" style="width:${barW}%;background:${d.color}"></div></div></div>
-      <div class="pos-pct" style="color:${d.color}">${pct}%</div>
-    `;
-    list.appendChild(row);
   });
 }
 
@@ -938,26 +774,21 @@ function updateRankings(snap) {
 function selectDriver(code) {
   selectedDriver = code;
   document.querySelectorAll('.driver-row').forEach(r => r.classList.remove('active'));
-  const row = document.getElementById(`dr-${code}`);
-  if (row) row.classList.add('active');
-
-  const panel = document.getElementById('driver-detail-panel');
-  const rankSec = document.getElementById('rankings-section');
-  panel.style.display = 'block';
-  rankSec.style.display = 'none';
+  document.getElementById(`dr-${code}`)?.classList.add('active');
+  document.getElementById('driver-click-prompt').style.display = 'none';
+  document.getElementById('driver-detail-panel').style.display = 'block';
   updateDriverDetail(code);
 }
 
-let lapTimeChart = null;
-let cornerScoreChart = null;
-
 function updateDriverDetail(code) {
-  const d = G.drivers[code];
-  const snap = G.bayesian_timeline[currentLap];
-  const winProb = ((snap[code] || 0) * 100).toFixed(1);
-  const lapData = d.laps[currentLap] || d.laps[0];
-  const avgLaptime = (d.laps.reduce((s,l) => s + l.laptime, 0) / d.laps.length).toFixed(3);
-  const cornerWins = G.corners.filter(cn => G.corner_winners[cn] === code).length;
+  const d        = G.drivers[code];
+  const snap     = G.bayesian_timeline[currentLap];
+  const winProb  = ((snap[code]||0)*100).toFixed(1);
+  const pt       = d.pos_timeline && d.pos_timeline[currentLap];
+  const pos      = pt ? pt.position : '—';
+  const gap      = pt && pt.gap != null ? `+${pt.gap.toFixed(1)}s` : (pos===1?'LEADER':'—');
+  const avgLt    = (d.laps.reduce((s,l)=>s+l.laptime,0)/d.laps.length).toFixed(3);
+  const cWins    = G.corners.filter(cn => G.corner_winners[cn]===code).length;
 
   const panel = document.getElementById('driver-detail-panel');
   panel.className = 'fade-in';
@@ -965,89 +796,115 @@ function updateDriverDetail(code) {
     <div class="dd-header">
       <div class="dd-code" style="color:${d.color}">${code}</div>
       <div class="dd-name">${d.name}</div>
-      <div class="dd-team">${d.team} · ${d.points_2025} PTS (2025)</div>
+      <div class="dd-team">${d.team} · 2025 AVG POS: P${d.avg_finish_2025}</div>
     </div>
     <div class="dd-stats">
-      <div class="dd-stat">
-        <div class="dd-stat-val" style="color:${d.color}">${winProb}%</div>
-        <div class="dd-stat-label">WIN PROB</div>
-      </div>
-      <div class="dd-stat">
-        <div class="dd-stat-val" style="color:var(--cyan)">${cornerWins}</div>
-        <div class="dd-stat-label">CORNER WINS</div>
-      </div>
-      <div class="dd-stat">
-        <div class="dd-stat-val" style="color:var(--green)">${avgLaptime}s</div>
-        <div class="dd-stat-label">AVG LAP</div>
-      </div>
-      <div class="dd-stat">
-        <div class="dd-stat-val" style="color:var(--amber)">${d.overall_score.toFixed(1)}</div>
-        <div class="dd-stat-label">GS SCORE</div>
-      </div>
+      <div class="dd-stat"><div class="dd-stat-val" style="color:${d.color}">${winProb}%</div><div class="dd-stat-label">WIN PROB</div></div>
+      <div class="dd-stat"><div class="dd-stat-val" style="color:var(--cyan)">P${pos}</div><div class="dd-stat-label">POSITION</div></div>
+      <div class="dd-stat"><div class="dd-stat-val" style="color:var(--amber)">${gap}</div><div class="dd-stat-label">GAP</div></div>
+      <div class="dd-stat"><div class="dd-stat-val" style="color:var(--green)">${cWins}</div><div class="dd-stat-label">CORNER WINS</div></div>
     </div>
-    <div style="font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:6px">LAP TIME TREND</div>
-    <canvas id="dd-laptime-chart" class="chart-small"></canvas>
-    <div style="font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:1px;margin:10px 0 6px">CORNER EXECUTION</div>
-    <canvas id="dd-corner-chart" class="chart-small"></canvas>
-    <button class="btn btn-ghost" style="margin-top:12px;width:100%;font-size:10px" onclick="backToRankings()">← ALL DRIVERS</button>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:6px">WIN PROBABILITY TREND</div>
+    <canvas id="dd-prob-chart" class="chart-small"></canvas>
+    <div style="font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:1px;margin:10px 0 6px">RACE POSITION TREND</div>
+    <canvas id="dd-pos-chart" class="chart-small"></canvas>
+    <div id="dd-advice-section"></div>
+    <button class="btn btn-ghost" style="margin-top:12px;width:100%;font-size:10px" onclick="backToPrompt()">← BACK</button>
   `;
 
+  // Render counterfactual advice for current lap
+  renderAdvice(code, currentLap + 1);
+
   setTimeout(() => {
-    // Lap time chart
-    const ltCtx = document.getElementById('dd-laptime-chart');
-    if (lapTimeChart) lapTimeChart.destroy();
-    lapTimeChart = new Chart(ltCtx, {
-      type: 'line',
-      data: {
-        labels: d.laps.map(l => `L${l.lap}`),
-        datasets: [{
-          data: d.laps.map(l => l.laptime),
-          borderColor: d.color, backgroundColor: d.color + '18',
-          fill: true, tension: 0.4, pointRadius: 2, borderWidth: 1.5,
-        }]
-      },
-      options: miniChartOptions()
+    // Win prob trend for this driver
+    const tl  = G.bayesian_timeline;
+    const ctx1 = document.getElementById('dd-prob-chart');
+    if (ctx1) new Chart(ctx1.getContext('2d'), {
+      type:'line',
+      data:{labels:tl.map(t=>`L${t.lap}`),datasets:[{
+        data:tl.map(t=>((t[code]||0)*100).toFixed(2)),
+        borderColor:d.color,backgroundColor:d.color+'20',fill:true,tension:0.4,pointRadius:0,borderWidth:1.5,
+      }]},
+      options:miniOpts()
     });
 
-    // Corner score chart
-    const ccCtx = document.getElementById('dd-corner-chart');
-    if (cornerScoreChart) cornerScoreChart.destroy();
-    const ckeys = Object.keys(d.corner_means);
-    cornerScoreChart = new Chart(ccCtx, {
-      type: 'bar',
-      data: {
-        labels: ckeys,
-        datasets: [{
-          data: ckeys.map(c => d.corner_means[c]),
-          backgroundColor: ckeys.map(c => G.corner_winners[c] === code ? d.color + 'cc' : d.color + '30'),
-          borderColor: ckeys.map(c => G.corner_winners[c] === code ? d.color : 'transparent'),
-          borderWidth: 1,
-        }]
-      },
-      options: miniChartOptions()
+    // Race position trend
+    const pts  = d.pos_timeline || [];
+    const ctx2 = document.getElementById('dd-pos-chart');
+    if (ctx2) new Chart(ctx2.getContext('2d'), {
+      type:'line',
+      data:{labels:pts.map(p=>`L${p.lap}`),datasets:[{
+        data:pts.map(p=>p.position||null),
+        borderColor:d.color,backgroundColor:'transparent',tension:0.3,pointRadius:0,borderWidth:1.5,
+      }]},
+      options:{...miniOpts(), scales:{
+        x:{ticks:{color:'#4a6680',font:{family:'JetBrains Mono',size:7},maxTicksLimit:6},grid:{color:'#1a2535'}},
+        y:{ticks:{color:'#4a6680',font:{family:'JetBrains Mono',size:7},reverse:true,callback:v=>`P${v}`},grid:{color:'#1a2535'},min:1,max:20},
+      }}
     });
   }, 30);
 }
 
-function backToRankings() {
+function renderAdvice(code, lapNum) {
+  const section = document.getElementById('dd-advice-section');
+  if (!section) return;
+  const d      = G.drivers[code];
+  const advice = d.advice && d.advice[String(lapNum)];
+
+  if (!advice || advice.length === 0) {
+    section.innerHTML = '';
+    return;
+  }
+
+  const rows = advice.map((a, i) => {
+    const isTop  = i === 0;
+    const sign   = a.delta_p > 0 ? '+' : '';
+    const color  = a.delta_p > 1.5 ? 'var(--green)' :
+                   a.delta_p > 0.3 ? 'var(--amber)' : 'var(--muted)';
+    const badge  = isTop ? `<span style="color:var(--cyan);font-size:8px;margin-left:4px">▲ TOP PRIORITY</span>` : '';
+    return `
+      <div style="
+        padding:8px 10px;
+        margin-bottom:5px;
+        background:${isTop ? 'rgba(0,212,255,0.06)' : 'rgba(255,255,255,0.02)'};
+        border:1px solid ${isTop ? 'rgba(0,212,255,0.2)' : 'rgba(255,255,255,0.05)'};
+        border-radius:4px;
+      ">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+          <span style="font-family:var(--hud);font-size:9px;letter-spacing:1px;color:var(--fg)">${a.factor}</span>
+          <span style="font-family:var(--mono);font-size:11px;font-weight:700;color:${color}">${sign}${a.delta_p.toFixed(2)}%</span>
+        </div>
+        <div style="font-family:var(--mono);font-size:9px;color:var(--muted)">${a.intervention}${badge}</div>
+      </div>`;
+  }).join('');
+
+  section.innerHTML = `
+    <div style="font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:1px;margin:12px 0 7px">
+      STRATEGIC ADVICE — LAP ${lapNum}
+    </div>
+    ${rows}
+    <div style="font-family:var(--mono);font-size:8px;color:#2a4050;margin-top:5px;line-height:1.4">
+      ΔP = counterfactual gain in win probability if intervention applied this lap
+    </div>
+  `;
+}
+
+function backToPrompt() {
   selectedDriver = null;
   document.querySelectorAll('.driver-row').forEach(r => r.classList.remove('active'));
   document.getElementById('driver-detail-panel').style.display = 'none';
-  document.getElementById('rankings-section').style.display = 'block';
+  document.getElementById('driver-click-prompt').style.display = 'block';
 }
 
-function miniChartOptions() {
+function miniOpts() {
   return {
-    responsive: true, maintainAspectRatio: true, animation: false,
-    plugins: { legend: { display: false }, tooltip: {
-      backgroundColor: '#0a0f18', borderColor: '#1a2535', borderWidth: 1,
-      titleFont: { family: 'JetBrains Mono', size: 8 },
-      bodyFont:  { family: 'JetBrains Mono', size: 8 },
-      titleColor: '#dce8f5', bodyColor: '#4a6680'
-    }},
-    scales: {
-      x: { ticks: { color: '#4a6680', font: { family: 'JetBrains Mono', size: 7 }, maxTicksLimit: 6 }, grid: { color: '#1a2535' } },
-      y: { ticks: { color: '#4a6680', font: { family: 'JetBrains Mono', size: 7 }, maxTicksLimit: 4 }, grid: { color: '#1a2535' } }
+    responsive:true, maintainAspectRatio:true, animation:false,
+    plugins:{legend:{display:false},tooltip:{backgroundColor:'#0a0f18',borderColor:'#1a2535',borderWidth:1,
+      titleFont:{family:'JetBrains Mono',size:8},bodyFont:{family:'JetBrains Mono',size:8},
+      titleColor:'#dce8f5',bodyColor:'#4a6680'}},
+    scales:{
+      x:{ticks:{color:'#4a6680',font:{family:'JetBrains Mono',size:7},maxTicksLimit:6},grid:{color:'#1a2535'}},
+      y:{ticks:{color:'#4a6680',font:{family:'JetBrains Mono',size:7},maxTicksLimit:4},grid:{color:'#1a2535'}},
     }
   };
 }

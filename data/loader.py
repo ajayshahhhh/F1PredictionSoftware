@@ -1,215 +1,218 @@
 """
-OpenF1 telemetry loader — full race, all laps, all drivers.
-First load: slow (~2-3 min), fetches every lap's telemetry via OpenF1.
-After that: instant from disk cache.
-Progress is streamed back via a /api/progress SSE endpoint.
+OpenF1 loader — full race, all laps, all drivers.
+
+Key insight: fetch ALL car_data for a driver in one call, then split by lap timestamps.
+That's 20 requests instead of 1140. Much faster, no rate limit issues.
 """
 
 import numpy as np
 import json
+import time
 import urllib.request
 import urllib.parse
-import threading
 from pathlib import Path
+from datetime import datetime, timedelta
 from data.drivers import DRIVERS
 
 CACHE_DIR = Path(__file__).parent.parent / "cache"
 CACHE_DIR.mkdir(exist_ok=True)
 
 CIRCUIT_CORNERS = {
-    "Australia":   {"corners": ["T1","T2","T3","T4","T5","T6","T7","T8","T9","T10","T11","T12","T13","T14","T15","T16"], "country": "Australia"},
-    "China":       {"corners": ["T1","T2","T3","T4","T5","T6","T7","T8","T9","T10","T11","T12","T13","T14","T15","T16"], "country": "China"},
-    "Bahrain":     {"corners": ["T1","T2","T3","T4","T5","T6","T7","T8","T9","T10","T11","T12","T13","T14","T15"],       "country": "Bahrain"},
-    "Japan":       {"corners": ["T1","T2","T3","T4","T5","T6","T7","T8","T9","T10","T11","T12","T13","T14","T15","T16","T17","T18"], "country": "Japan"},
-    "Saudi Arabia":{"corners": ["T1","T2","T3","T4","T5","T6","T7","T8","T9","T10","T11","T12","T13","T14","T15","T16","T17","T18","T19","T20","T21","T22","T23","T24","T25","T26","T27"], "country": "Saudi Arabia"},
+    "Australia":    {"corners": ["T1","T2","T3","T4","T5","T6","T7","T8","T9","T10","T11","T12","T13","T14","T15","T16"], "country": "Australia"},
+    "China":        {"corners": ["T1","T2","T3","T4","T5","T6","T7","T8","T9","T10","T11","T12","T13","T14","T15","T16"], "country": "China"},
+    "Bahrain":      {"corners": ["T1","T2","T3","T4","T5","T6","T7","T8","T9","T10","T11","T12","T13","T14","T15"],       "country": "Bahrain"},
+    "Japan":        {"corners": ["T1","T2","T3","T4","T5","T6","T7","T8","T9","T10","T11","T12","T13","T14","T15","T16","T17","T18"], "country": "Japan"},
+    "Saudi Arabia": {"corners": ["T1","T2","T3","T4","T5","T6","T7","T8","T9","T10","T11","T12","T13","T14","T15","T16","T17","T18","T19","T20","T21","T22","T23","T24","T25","T26","T27"], "country": "Saudi Arabia"},
 }
 
-# Global progress state (written by loader thread, read by SSE endpoint)
 progress_state = {"status": "idle", "message": "", "pct": 0}
 
-
-def _set_progress(msg: str, pct: int):
-    progress_state["status"]  = "loading"
-    progress_state["message"] = msg
-    progress_state["pct"]     = pct
+def _set_progress(msg, pct):
+    progress_state.update({"status": "loading", "message": msg, "pct": pct})
     print(f"[{pct:3d}%] {msg}")
 
-
 def _get(endpoint, params):
-    url = "https://api.openf1.org/v1/" + endpoint + "?" + urllib.parse.urlencode(params)
+    str_params = {k: str(v) for k, v in params.items()}
+    url = "https://api.openf1.org/v1/" + endpoint + "?" + urllib.parse.urlencode(str_params)
     req = urllib.request.Request(url, headers={"Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=20) as r:
+    with urllib.request.urlopen(req, timeout=30) as r:
         return json.loads(r.read().decode())
 
-
 def _session_key(year, circuit, stype="R"):
-    name_map = {"R": "Race", "Q": "Qualifying", "FP1": "Practice 1", "FP2": "Practice 2", "FP3": "Practice 3"}
-    sname   = name_map.get(stype, "Race")
-    country = CIRCUIT_CORNERS.get(circuit, {}).get("country", circuit)
-    res = _get("sessions", {"year": year, "country_name": country, "session_name": sname})
+    name_map = {"R": "Race", "Q": "Qualifying", "FP1": "Practice 1"}
+    country  = CIRCUIT_CORNERS.get(circuit, {}).get("country", circuit)
+    res = _get("sessions", {"year": year, "country_name": country,
+                            "session_name": name_map.get(stype, "Race")})
     return res[0]["session_key"] if res else None
 
+def _parse_dt(s):
+    if not s:
+        return None
+    return datetime.fromisoformat(s.replace("Z", "+00:00"))
 
-def load_session(year: int, circuit: str, session_type: str = "R") -> dict:
+def _slice_telemetry_for_lap(tel_points, lap_start_str, lap_duration):
+    """
+    Given all telemetry for a driver (sorted by date), slice out points
+    that fall within [lap_start, lap_start + lap_duration + 1s].
+    """
+    if not lap_start_str or not tel_points:
+        return []
+    dt_start = _parse_dt(lap_start_str)
+    if dt_start is None:
+        return []
+    dt_end = dt_start + timedelta(seconds=lap_duration + 1.0)
+    return [p for p in tel_points
+            if dt_start <= (_parse_dt(p.get("date")) or dt_start) <= dt_end]
+
+def _corners_from_tel(tel_slice, corners):
+    if not tel_slice:
+        return None
+    speeds    = np.array([t.get("speed",    0)         for t in tel_slice], dtype=float)
+    throttles = np.array([t.get("throttle", 0)         for t in tel_slice], dtype=float) / 100
+    brakes    = np.array([float(t.get("brake", False)) for t in tel_slice], dtype=float)
+    segs      = np.array_split(np.arange(len(tel_slice)), len(corners))
+    result    = []
+    for cn, idx in zip(corners, segs):
+        if not len(idx):
+            continue
+        result.append({
+            "corner":   cn,
+            "speed":    round(float(speeds[idx].mean()),    2),
+            "throttle": round(float(throttles[idx].mean()), 4),
+            "brake":    round(float(brakes[idx].mean()),    4),
+        })
+    return result if result else None
+
+
+def load_session(year, circuit, session_type="R"):
     key  = f"{year}_{circuit}_{session_type}.json"
     path = CACHE_DIR / key
-
     if path.exists():
         _set_progress("Loading from cache...", 99)
         with open(path) as f:
             data = json.load(f)
         progress_state["status"] = "done"
         return data
-
-    try:
-        data = _load_openf1(year, circuit, session_type)
-    except Exception as e:
-        print(f"[loader] OpenF1 failed ({e}), using mock")
-        _set_progress("OpenF1 unavailable — using mock data", 90)
-        data = _load_mock(circuit, year)
-
+    data = _load_openf1(year, circuit, session_type)
     with open(path, "w") as f:
         json.dump(data, f)
-
     progress_state["status"] = "done"
     return data
 
 
 def _load_openf1(year, circuit, session_type):
-    corners = CIRCUIT_CORNERS.get(circuit, CIRCUIT_CORNERS["Australia"])["corners"]
+    corners  = CIRCUIT_CORNERS.get(circuit, CIRCUIT_CORNERS["Australia"])["corners"]
+    fallback = [{"corner": cn, "speed": 150.0, "throttle": 0.5, "brake": 0.1} for cn in corners]
 
     _set_progress("Connecting to OpenF1...", 2)
     sk = _session_key(year, circuit, session_type)
     if not sk:
-        raise ValueError(f"No session found: {year} {circuit} {session_type}")
+        raise ValueError(f"No session found: {year} {circuit}")
 
-    _set_progress(f"Session key {sk} — fetching driver list...", 5)
-    raw_drivers = _get("drivers", {"session_key": sk})
-    acronym_to_num = {d["name_acronym"]: d["driver_number"] for d in raw_drivers if "name_acronym" in d}
+    _set_progress("Fetching driver list...", 4)
+    raw_drivers    = _get("drivers", {"session_key": sk})
+    acronym_to_num = {d["name_acronym"]: d["driver_number"]
+                      for d in raw_drivers if d.get("name_acronym")}
 
-    # Total work units = 20 drivers × avg ~50 laps each = ~1000 lap fetches
+    _set_progress("Fetching race positions...", 5)
+    # Position data is time-based (no lap_number) -- store as sorted list per driver
+    # We'll map to lap numbers later using lap date_start timestamps
+    pos_by_driver_time = {}  # {driver_num: [(datetime, position), ...]}
+    try:
+        pos_raw = _get("position", {"session_key": sk})
+        print(f"[loader] position: {len(pos_raw)} raw entries")
+        from datetime import datetime
+        for p in pos_raw:
+            dn  = p.get("driver_number")
+            pos = p.get("position")
+            dt  = p.get("date")
+            if dn and pos and dt:
+                pos_by_driver_time.setdefault(dn, []).append(
+                    (datetime.fromisoformat(dt.replace("Z", "+00:00")), pos))
+        # Sort each driver's list by time
+        for dn in pos_by_driver_time:
+            pos_by_driver_time[dn].sort(key=lambda x: x[0])
+        print(f"[loader] position: {len(pos_by_driver_time)} drivers with time-based positions")
+    except Exception as e:
+        print(f"[loader] position fetch failed: {e}")
+
+    def get_position_at(driver_num, lap_date_str):
+        """Return the most recent position at or before this lap's start time."""
+        entries = pos_by_driver_time.get(driver_num, [])
+        if not entries or not lap_date_str:
+            return None
+        from datetime import datetime
+        lap_dt = datetime.fromisoformat(lap_date_str.replace("Z", "+00:00"))
+        pos = None
+        for dt, p in entries:
+            if dt <= lap_dt:
+                pos = p
+            else:
+                break
+        return pos
+
+    _set_progress("Fetching gap data...", 7)
+    gap_by_driver = {}
+    try:
+        for iv in _get("intervals", {"session_key": sk}):
+            dn  = iv.get("driver_number")
+            lap = iv.get("lap_number")
+            gap = iv.get("gap_to_leader")
+            if dn and lap and gap is not None:
+                gap_by_driver.setdefault(dn, {})[lap] = (
+                    float(gap) if isinstance(gap, (int, float)) else 999.0)
+    except Exception as e:
+        print(f"[loader] intervals fetch failed: {e}")
+
     all_driver_codes = list(DRIVERS.keys())
-    n_drivers = len(all_driver_codes)
-    drivers_out = {}
+    n_drivers        = len(all_driver_codes)
+    drivers_out      = {}
 
     for d_idx, code in enumerate(all_driver_codes):
-        base_pct = 5 + int((d_idx / n_drivers) * 90)
+        base_pct = 10 + int((d_idx / n_drivers) * 85)
         _set_progress(f"Fetching {code} ({d_idx+1}/{n_drivers})...", base_pct)
 
         num = acronym_to_num.get(code)
         if not num:
-            _set_progress(f"{code} not in session — using mock", base_pct)
-            drivers_out[code] = _mock_driver(code, circuit)
+            print(f"[loader] {code} not in session, skipping")
             continue
 
         try:
-            # Fetch all laps for this driver in one call
+            # Lap times -- one call
             laps_raw = _get("laps", {"session_key": sk, "driver_number": num})
-            valid_laps = [l for l in laps_raw if l.get("lap_duration") and l["lap_duration"] > 60]
-            valid_laps.sort(key=lambda l: l["lap_number"])
+            valid    = sorted([l for l in laps_raw
+                               if (l.get("lap_duration") or 0) > 60 and l.get("date_start")],
+                              key=lambda l: l["lap_number"])
+            if not valid:
+                print(f"[loader] {code}: no valid laps")
+                continue
 
-            if not valid_laps:
-                raise ValueError("no valid laps")
+            # ALL telemetry for this driver -- one call, split by lap timestamps
+            tel_all = _get("car_data", {"session_key": sk, "driver_number": num})
+            tel_all.sort(key=lambda t: t.get("date", ""))
+            print(f"[loader] {code}: {len(valid)} laps, {len(tel_all)} telemetry points")
 
-            n_laps = len(valid_laps)
             laps_out = []
-
-            for l_idx, lap in enumerate(valid_laps):
-                lap_pct = base_pct + int((l_idx / n_laps) * (90 / n_drivers))
-                if l_idx % 5 == 0:
-                    _set_progress(f"{code} — lap {lap['lap_number']} / {valid_laps[-1]['lap_number']}", lap_pct)
-
-                tel = _get("car_data", {
-                    "session_key":   sk,
-                    "driver_number": num,
-                    "lap_number":    lap["lap_number"],
-                })
-
-                if not tel:
-                    # No telemetry for this lap (safety car, pit lap etc.) —
-                    # still record the lap with estimated corner values
-                    laps_out.append(_lap_from_duration(lap, corners))
-                    continue
-
-                speeds    = np.array([t.get("speed",    0)           for t in tel], dtype=float)
-                throttles = np.array([t.get("throttle", 0)           for t in tel], dtype=float) / 100
-                brakes    = np.array([float(t.get("brake", False))   for t in tel], dtype=float)
-
-                segs = np.array_split(np.arange(len(tel)), len(corners))
-                corner_data = []
-                for cn, idx in zip(corners, segs):
-                    if not len(idx):
-                        continue
-                    corner_data.append({
-                        "corner":   cn,
-                        "speed":    round(float(speeds[idx].mean()),    2),
-                        "throttle": round(float(throttles[idx].mean()), 4),
-                        "brake":    round(float(brakes[idx].mean()),    4),
-                    })
-
+            for lap in valid:
+                ln      = lap["lap_number"]
+                tel_lap = _slice_telemetry_for_lap(tel_all, lap["date_start"], lap["lap_duration"])
+                corners_data = _corners_from_tel(tel_lap, corners) or fallback
                 laps_out.append({
-                    "lap":     lap["lap_number"],
-                    "laptime": round(float(lap["lap_duration"]), 3),
-                    "corners": corner_data,
+                    "lap":      ln,
+                    "laptime":  round(float(lap["lap_duration"]), 3),
+                    "corners":  corners_data,
+                    "position": get_position_at(num, lap["date_start"]),
+                    "gap":      gap_by_driver.get(num, {}).get(ln),
                 })
 
-            if not laps_out:
-                raise ValueError("no usable laps after telemetry fetch")
-
-            drivers_out[code] = {
-                **DRIVERS[code],
-                "driver":  code,
-                "circuit": circuit,
-                "laps":    laps_out,
-            }
-            _set_progress(f"{code} ✓  {len(laps_out)} laps", base_pct)
+            drivers_out[code] = {**DRIVERS[code], "driver": code, "circuit": circuit,
+                                 "laps": laps_out}
+            _set_progress(f"{code} ✓ {len(laps_out)} laps", base_pct)
 
         except Exception as e:
-            _set_progress(f"{code} failed ({e}) — mock", base_pct)
-            drivers_out[code] = _mock_driver(code, circuit)
+            print(f"[loader] {code} failed: {e}")
+
+    if not drivers_out:
+        raise ValueError("No driver data retrieved from OpenF1")
 
     return {"circuit": circuit, "year": year, "corners": corners, "drivers": drivers_out}
-
-
-def _lap_from_duration(lap_raw: dict, corners: list) -> dict:
-    """Fallback lap entry when telemetry is missing (pit stop, SC lap etc.)"""
-    n = len(corners)
-    dur = lap_raw.get("lap_duration", 90.0)
-    corner_data = [{"corner": cn, "speed": 150.0, "throttle": 0.5, "brake": 0.1} for cn in corners]
-    return {"lap": lap_raw["lap_number"], "laptime": round(float(dur), 3), "corners": corner_data}
-
-
-def _load_mock(circuit, year=0):
-    corners = CIRCUIT_CORNERS.get(circuit, CIRCUIT_CORNERS["Australia"])["corners"]
-    return {
-        "circuit": circuit, "year": year, "corners": corners,
-        "drivers": {code: _mock_driver(code, circuit) for code in DRIVERS},
-    }
-
-
-def _mock_driver(code, circuit, n_laps=57):
-    """57 laps ~ Australia race distance."""
-    corners = CIRCUIT_CORNERS.get(circuit, CIRCUIT_CORNERS["Australia"])["corners"]
-    pts   = DRIVERS[code]["points"]
-    skill = np.clip(pts / 350.0, 0, 0.12)
-    rng   = np.random.default_rng(abs(hash(code + circuit)) % (2**31))
-
-    laps = []
-    for i in range(n_laps):
-        corner_data = []
-        for c_idx, cn in enumerate(corners):
-            base_spd = 185 + 55 * np.sin(c_idx * 0.42)
-            base_thr = 0.62 + 0.22 * np.cos(c_idx * 0.5)
-            base_brk = max(0, 0.28 - 0.14 * np.cos(c_idx * 0.5))
-            # Add slight lap-to-lap variation (tyre deg etc.)
-            deg = 1 - (i / n_laps) * 0.03
-            corner_data.append({
-                "corner":   cn,
-                "speed":    round(float(base_spd * (1 + skill) * deg + rng.normal(0, 3)), 2),
-                "throttle": round(float(np.clip(base_thr*(1+skill*0.5)*deg + rng.normal(0,0.03), 0, 1)), 4),
-                "brake":    round(float(np.clip(base_brk*(1-skill*0.3)    + rng.normal(0,0.02), 0, 1)), 4),
-            })
-        lt = sum((1.85 - skill*0.35 + rng.normal(0, 0.07)) for _ in corners) * 4.7 + rng.normal(0, 0.3)
-        laps.append({"lap": i+1, "laptime": round(float(lt), 3), "corners": corner_data})
-
-    return {**DRIVERS[code], "driver": code, "circuit": circuit, "laps": laps}
