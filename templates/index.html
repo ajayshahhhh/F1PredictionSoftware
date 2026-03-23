@@ -65,14 +65,6 @@ select:focus{outline:none;border-color:var(--red);}
 #track-area{flex:1;position:relative;display:flex;align-items:center;justify-content:center;
   background:radial-gradient(ellipse at center,#0d1a26 0%,var(--bg0) 70%);}
 
-/* View toggle pills */
-#view-toggle{position:absolute;top:14px;right:16px;display:none;gap:0;
-  border:1px solid var(--line2);border-radius:4px;overflow:hidden;}
-.view-pill{font-family:var(--mono);font-size:9px;letter-spacing:1px;padding:5px 12px;
-  background:var(--bg2);color:var(--muted);cursor:pointer;border:none;transition:all .15s;}
-.view-pill.active{background:rgba(0,212,255,.12);color:var(--cyan);}
-.view-pill:hover:not(.active){background:var(--bg3);color:var(--text);}
-
 #track-svg-wrap{width:100%;height:100%;display:flex;align-items:center;justify-content:center;}
 #track-svg-wrap svg{max-width:88%;max-height:88%;filter:drop-shadow(0 0 30px rgba(0,212,255,.06));}
 
@@ -85,10 +77,6 @@ select:focus{outline:none;border-color:var(--red);}
 .corner-dot.active-corner{r:10;animation:corner-pulse 1s infinite;}
 .corner-label{font-family:var(--hud);font-size:8px;font-weight:600;fill:var(--muted);pointer-events:none;}
 .corner-label.active-corner{fill:var(--cyan);}
-/* Driver position markers */
-.driver-pos-marker{cursor:pointer;transition:all .4s cubic-bezier(.16,1,.3,1);}
-.driver-pos-label{font-family:var(--hud);font-size:9px;font-weight:700;pointer-events:none;
-  text-shadow:0 1px 3px rgba(0,0,0,.9);}
 
 /* Impact badge */
 #impact-badge{position:absolute;top:14px;left:16px;
@@ -161,14 +149,6 @@ select:focus{outline:none;border-color:var(--red);}
 .ci-stat-val{font-family:var(--mono);font-size:16px;font-weight:500;}
 .ci-stat-label{font-size:9px;color:var(--muted);letter-spacing:1px;margin-top:2px;}
 
-/* Position view legend */
-#pos-legend{position:absolute;bottom:64px;right:16px;
-  background:rgba(10,15,24,.9);border:1px solid var(--line2);border-radius:4px;
-  padding:10px 14px;display:none;min-width:160px;}
-.pos-legend-row{display:flex;align-items:center;gap:8px;margin-bottom:6px;font-size:10px;}
-.pos-legend-row:last-child{margin-bottom:0;}
-.pos-dot{width:10px;height:10px;border-radius:50%;flex-shrink:0;}
-
 @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.3;}}
 @keyframes blink{0%,100%{opacity:1;}50%{opacity:.15;}}
 @keyframes fadeUp{from{opacity:0;transform:translateX(-50%) translateY(8px);}to{opacity:1;transform:translateX(-50%) translateY(0);}}
@@ -223,12 +203,6 @@ select:focus{outline:none;border-color:var(--red);}
         </div>
       </div>
 
-      <!-- Toggle pills -->
-      <div id="view-toggle" style="display:none;position:absolute;top:14px;right:16px;">
-        <button class="view-pill active" id="pill-corners" onclick="setView('corners')">CORNERS</button>
-        <button class="view-pill" id="pill-positions" style="display: hide;" onclick="setView('positions')">POSITIONS</button>
-      </div>
-
       <div id="impact-badge"></div>
 
       <!-- Corner inspector -->
@@ -252,8 +226,6 @@ select:focus{outline:none;border-color:var(--red);}
         </div>
       </div>
 
-      <!-- Position view legend -->
-      <div id="pos-legend"></div>
     </div>
 
     <div id="scrubber">
@@ -289,7 +261,6 @@ let currentLap = 0;
 let playInterval = null;
 let selectedCorner = null;
 let selectedDriver = null;
-let currentView = 'corners';   // 'corners' | 'positions'
 let winProbChart = null;
 let lapTimeChart = null;
 let cornerScoreChart = null;
@@ -300,7 +271,6 @@ let TRACK_DATA = null;   // {path, points, corners, viewBox}
 
 // GPS corner lookup built from TRACK_DATA.corners
 let GPS_CORNER_POS = {};      // {T1: {x,y,lx,ly}, ...}
-let TRACK_POSITIONS_XY = [];  // [{x,y}] one per race position slot (20 entries)
 
 // ── ANALYZE ────────────────────────────────────────────────────────────────
 async function analyze() {
@@ -348,7 +318,7 @@ async function analyze() {
     if (G.error) throw new Error(`OpenF1: ${G.error}`);
     G._track = trackData;
 
-    currentLap = 0; selectedCorner = null; selectedDriver = null; currentView = 'corners';
+    currentLap = 0; selectedCorner = null; selectedDriver = null;
     setLoadingProgress(100, 'DONE');
     initUI();
     dot.className = 'dot live';
@@ -378,8 +348,6 @@ function initUI() {
   setupScrubber();
   renderWinProbChart();
   showImpactBadge();
-  document.getElementById('view-toggle').style.display = 'flex';
-  setView('corners');
   setLap(0);
 }
 
@@ -387,34 +355,6 @@ function showImpactBadge() {
   const b = document.getElementById('impact-badge');
   b.style.display = 'block';
   b.innerHTML = `⚡ HIGHEST IMPACT CORNER: <b>${G.most_impactful_corner}</b>`;
-}
-
-// ── VIEW TOGGLE ────────────────────────────────────────────────────────────
-function setView(view) {
-  currentView = view;
-  document.getElementById('pill-corners').classList.toggle('active', view==='corners');
-  document.getElementById('pill-positions').classList.toggle('active', view==='positions');
-
-  const cornerEls = document.querySelectorAll('.corner-dot, .corner-label');
-  const driverEls = document.querySelectorAll('.driver-pos-marker, .driver-pos-label');
-  const impactBadge = document.getElementById('impact-badge');
-  const posLegend   = document.getElementById('pos-legend');
-
-  if (view === 'corners') {
-    cornerEls.forEach(el => el.style.display = '');
-    driverEls.forEach(el => el.style.display = 'none');
-    impactBadge.style.display = 'block';
-    posLegend.style.display   = 'none';
-    document.getElementById('corner-inspector').classList.remove('show');
-  } else {
-    cornerEls.forEach(el => el.style.display = 'none');
-    driverEls.forEach(el => el.style.display = '');
-    impactBadge.style.display = 'none';
-    posLegend.style.display   = 'block';
-    document.getElementById('corner-inspector').classList.remove('show');
-    updatePositionMarkers(currentLap);
-    updatePosLegend(currentLap);
-  }
 }
 
 // ── DRIVER LIST ────────────────────────────────────────────────────────────
@@ -460,14 +400,6 @@ function renderTrackSVG() {
   GPS_CORNER_POS = {};
   TRACK_DATA.corners.forEach(c => { GPS_CORNER_POS[c.name] = c; });
 
-  // Build evenly-spaced position slots from the GPS points (20 slots for P1-P20)
-  const pts = TRACK_DATA.points;
-  TRACK_POSITIONS_XY = [];
-  for (let i = 0; i < 20; i++) {
-    const idx = Math.floor(i * pts.length / 20);
-    TRACK_POSITIONS_XY.push({x: pts[idx][0], y: pts[idx][1]});
-  }
-
   // Build SVG
   const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
   svg.setAttribute('viewBox', TRACK_DATA.viewBox || '0 0 600 500');
@@ -485,9 +417,7 @@ function renderTrackSVG() {
   `;
 
   const cg = makeSVGEl('g', {id:'corner-markers'});
-  const dg = makeSVGEl('g', {id:'driver-markers'});
   svg.appendChild(cg);
-  svg.appendChild(dg);
 
   // Corner markers from GPS positions
   G.corners.forEach(cn => {
@@ -499,30 +429,13 @@ function renderTrackSVG() {
     const circle = makeSVGEl('circle',{cx:pos.x, cy:pos.y, r:6, fill:color,
       class:'corner-dot', id:`cdot-${cn}`});
     circle.style.setProperty('--c-color', color);
-    circle.addEventListener('click', () => currentView==='corners' && selectCorner(cn));
+    circle.addEventListener('click', () => selectCorner(cn));
 
     const text = makeSVGEl('text',{x:pos.lx, y:pos.ly,
       'text-anchor':'middle', class:'corner-label', id:`clabel-${cn}`});
     text.textContent = cn;
     cg.appendChild(circle);
     cg.appendChild(text);
-  });
-
-  // Driver position markers
-  Object.entries(G.drivers).forEach(([code, d]) => {
-    const g = makeSVGEl('g',{class:'driver-pos-marker', id:`dmarker-${code}`, style:'display:none'});
-    g.addEventListener('click', () => selectDriver(code));
-    const circle = makeSVGEl('circle',{r:9, fill:d.color,
-      'fill-opacity':'0.92', stroke:'#0a0f18', 'stroke-width':'1.5', filter:'url(#glow)'});
-    const label = makeSVGEl('text',{'text-anchor':'middle','dominant-baseline':'central',
-      class:'driver-pos-label', fill:'#fff', style:'font-size:7px;font-weight:700'});
-    label.textContent = code.slice(0,3);
-    g.appendChild(circle);
-    g.appendChild(label);
-    dg.appendChild(g);
-    const posLbl = makeSVGEl('text',{class:'driver-pos-label', id:`dpos-${code}`,
-      'text-anchor':'middle', fill:d.color, style:'font-size:8px;display:none'});
-    dg.appendChild(posLbl);
   });
 
   wrap.innerHTML = '';
@@ -533,74 +446,6 @@ function makeSVGEl(tag, attrs) {
   const el = document.createElementNS('http://www.w3.org/2000/svg', tag);
   for (const [k,v] of Object.entries(attrs)) el.setAttribute(k, v);
   return el;
-}
-
-// ── POSITION MARKERS ───────────────────────────────────────────────────────
-function updatePositionMarkers(lapIdx) {
-  if (!G) return;
-  // Build position → driver map for this lap
-  const posMap = {};
-  Object.entries(G.drivers).forEach(([code, d]) => {
-    const pt = d.pos_timeline && d.pos_timeline[lapIdx];
-    const pos = pt ? pt.position : null;
-    if (pos) posMap[pos] = {code, color: d.color};
-  });
-
-  Object.entries(G.drivers).forEach(([code, d]) => {
-    const marker = document.getElementById(`dmarker-${code}`);
-    const posLbl = document.getElementById(`dpos-${code}`);
-    if (!marker) return;
-
-    const pt  = d.pos_timeline && d.pos_timeline[lapIdx];
-    const pos = pt ? pt.position : null;
-
-    if (!pos || pos < 1 || pos > 20) {
-      marker.style.display = 'none';
-      if (posLbl) posLbl.style.display = 'none';
-      return;
-    }
-
-    const xy = TRACK_POSITIONS_XY[pos - 1] || TRACK_POSITIONS_XY[0];
-    // Small offset per driver to avoid exact overlap when two are in same zone
-    const jitter = ((code.charCodeAt(0) * 7) % 6) - 3;
-    const cx = xy.x + jitter;
-    const cy = xy.y + jitter;
-
-    marker.setAttribute('transform', `translate(${cx},${cy})`);
-    marker.style.display = '';
-    if (posLbl) {
-      posLbl.setAttribute('x', cx);
-      posLbl.setAttribute('y', cy - 15);
-      posLbl.textContent = `P${pos}`;
-      posLbl.style.display = '';
-    }
-  });
-}
-
-function updatePosLegend(lapIdx) {
-  const leg = document.getElementById('pos-legend');
-  // Show top 8 by current position
-  const sorted = Object.entries(G.drivers)
-    .map(([code, d]) => {
-      const pt  = d.pos_timeline && d.pos_timeline[lapIdx];
-      const gap = pt ? pt.gap : null;
-      const pos = pt ? pt.position : 99;
-      return {code, color: d.color, name: d.name, pos, gap};
-    })
-    .filter(x => x.pos)
-    .sort((a,b) => a.pos - b.pos)
-    .slice(0, 8);
-
-  leg.innerHTML = `<div style="font-family:var(--mono);font-size:9px;color:var(--muted);letter-spacing:1px;margin-bottom:8px">TOP 8 — LAP ${lapIdx+1}</div>` +
-    sorted.map(r => {
-      const gapStr = r.pos === 1 ? 'LEADER' : (r.gap != null ? `+${r.gap.toFixed(1)}s` : '—');
-      return `<div class="pos-legend-row">
-        <div class="pos-dot" style="background:${r.color}"></div>
-        <span style="font-family:var(--hud);font-size:9px;color:${r.color};width:14px">P${r.pos}</span>
-        <span style="font-family:var(--mono);font-size:9px;flex:1">${r.code}</span>
-        <span style="font-family:var(--mono);font-size:9px;color:var(--muted)">${gapStr}</span>
-      </div>`;
-    }).join('');
 }
 
 // ── SCRUBBER ───────────────────────────────────────────────────────────────
@@ -640,9 +485,8 @@ function setLap(lapIdx) {
   document.getElementById('lap-label').textContent   = `LAP ${snap.lap} / ${maxLap}`;
 
   updateDriverList(snap, lapIdx);
-  if (currentView === 'corners')   updateCornerDots(lapIdx);
-  if (currentView === 'positions') { updatePositionMarkers(lapIdx); updatePosLegend(lapIdx); }
-  if (selectedCorner && currentView === 'corners') updateInspector(selectedCorner, lapIdx);
+  updateCornerDots(lapIdx);
+  if (selectedCorner) updateInspector(selectedCorner, lapIdx);
   if (selectedDriver) updateDriverDetail(selectedDriver);
 }
 

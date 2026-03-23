@@ -18,12 +18,16 @@ from data.drivers import get_prior_probs, DRIVERS
 # ── Stage 1: Gaussian MLE corner model ────────────────────────────────────
 
 def fit_corner_gaussians(drivers_data):
+    # obs[corner][feature] stores all training samples for that corner+feature.
     obs = defaultdict(lambda: {"speed": [], "throttle": [], "brake": []})
     all_laps = []
     for code, d in drivers_data.items():
         for lap in d["laps"]:
+            # Keep lap time so we can pick the fastest laps as "good executions".
             all_laps.append((lap["laptime"], lap["corners"]))
+    # Fastest laps first.
     all_laps.sort(key=lambda x: x[0])
+    # Use top quartile as reference distribution
     fast = all_laps[:max(1, len(all_laps) // 4)]
     for _, corners in fast:
         for c in corners:
@@ -35,6 +39,9 @@ def fit_corner_gaussians(drivers_data):
         models[cn] = {}
         for feat in ("speed", "throttle", "brake"):
             arr = np.array(vals[feat])
+            # Gaussian MLE for Normal(mu, sigma^2):
+            #   mu_hat = sample mean, sigma_hat = sample std.
+            # Small sigma floor avoids divide-by-zero in log-likelihood.
             models[cn][feat] = {"mu": float(arr.mean()), "sigma": float(max(arr.std(), 1e-4))}
     return models
 
@@ -48,6 +55,7 @@ def score_corner(c, models):
         mu  = models[cn][feat]["mu"]
         sig = models[cn][feat]["sigma"]
         x   = c[feat]
+        # Log pdf of Gaussian for each feature; sum assumes conditional independence.
         s  += -0.5 * np.log(2 * np.pi * sig**2) - (x - mu)**2 / (2 * sig**2)
     return float(s)
 
@@ -57,12 +65,14 @@ def score_all_drivers(drivers_data, corner_models):
     for code, d in drivers_data.items():
         laps_out = []
         for lap in d["laps"]:
+            # Score every corner in the lap under Stage-1 Gaussian models.
             c_scored = [{"corner": c["corner"], "score": round(score_corner(c, corner_models), 4),
                          "speed": c["speed"], "throttle": c["throttle"], "brake": c["brake"]}
                         for c in lap["corners"]]
             laps_out.append({
                 "lap": lap["lap"], "laptime": lap["laptime"],
                 "corners": c_scored,
+                # Lap score = sum of corner log-likelihoods.
                 "lap_score": round(sum(c["score"] for c in c_scored), 4),
                 "position": lap.get("position"),
                 "gap":      lap.get("gap"),
@@ -73,7 +83,9 @@ def score_all_drivers(drivers_data, corner_models):
                 corner_acc[c["corner"]].append(c["score"])
         result[code] = {
             "laps":         laps_out,
+            # Mean quality at each corner across the race.
             "corner_means": {cn: round(float(np.mean(v)), 4) for cn, v in corner_acc.items()},
+            # Overall Stage-1 score for this driver.
             "overall":      round(float(np.mean([l["lap_score"] for l in laps_out])), 4),
         }
     return result
@@ -87,6 +99,7 @@ def fit_naive_bayes(drivers_data):
         for lap in d["laps"]:
             feats = {}
             for c in lap["corners"]:
+                # Flatten corner features into one feature vector per lap.
                 feats[c["corner"]+"_spd"] = c["speed"]
                 feats[c["corner"]+"_thr"] = c["throttle"]
                 feats[c["corner"]+"_brk"] = c["brake"]
@@ -98,10 +111,12 @@ def fit_naive_bayes(drivers_data):
     nonwin  = all_laps[nw:]
     all_keys = set(k for l in all_laps for k in l["feats"])
     def mle(laps, key):
+        # Per-class Gaussian MLE for each feature.
         vals = np.array([l["feats"].get(key, 0) for l in laps])
         return float(vals.mean()), max(float(vals.std()), 1e-4)
     wparams  = {k: mle(winners, k) for k in all_keys}
     nwparams = {k: mle(nonwin,  k) for k in all_keys}
+    # Return class-conditionals and log priors.
     return wparams, nwparams, np.log(nw/n), np.log((n-nw)/n)
 
 
@@ -116,6 +131,7 @@ def nb_score_lap(lap, wparams, nwparams, log_pw, log_pnw):
                 log_w  += lp(c[feat], *wparams[key])
                 log_nw += lp(c[feat], *nwparams[key])
     lmax = max(log_w, log_nw)
+    # Stable conversion from log-space to posterior probability.
     return float(np.exp(log_w-lmax) / (np.exp(log_w-lmax) + np.exp(log_nw-lmax)))
 
 
@@ -213,15 +229,17 @@ class BayesianRaceUpdater:
         r_corner = rank_norm(cs_arr)
 
         # ── Weighted combination → single likelihood per driver ────────────
+        # This is the per-lap evidence term L_i(lap_k).
         combined = w1*r_pos + w2*r_gap + w3*r_lap + w4*r_corner  # in [0,1]
 
         # Laplace smoothing: no driver ever gets 0 likelihood
         combined = combined * (1 - self.smoothing) + self.smoothing / n
 
         # ── Temperature-tempered Bayesian update ──────────────────────────
-        # L^T dampens the per-lap evidence so posterior moves gradually.
+        # L^T controls step size of each update.
         L_tempered = combined ** T
 
+        # Bayes update: posterior_k ∝ likelihood_k * posterior_{k-1}.
         unnorm = L_tempered * self.posterior
         self.posterior = unnorm / (unnorm.sum() + eps)
 
@@ -231,8 +249,8 @@ class BayesianRaceUpdater:
 
     def _single_update(self, lap_data_override, lap_num):
         """
-        Run one hypothetical Bayesian update from the CURRENT posterior
-        without mutating state. Returns the resulting posterior dict.
+        Run one hypothetical ("what-if") update from the CURRENT posterior
+        without mutating state. Used for counterfactual advice.
         """
         import copy
         n   = len(self.drivers)
@@ -269,7 +287,7 @@ class BayesianRaceUpdater:
 
     def counterfactual_advice(self, driver_code, lap_data, lap_num):
         """
-        Compute ΔP(win) for four counterfactual interventions on driver_code.
+        Compute ΔP(win) for four one-lap interventions on one driver.
         Returns a ranked list of {factor, intervention, delta_p, current, counterfactual}.
 
         Interventions (realistic single-lap improvements):
@@ -286,7 +304,7 @@ class BayesianRaceUpdater:
         n       = len(self.drivers)
         results = []
 
-        # Helper: compute ΔP for one counterfactual lap_data
+        # Helper: change one input, run a hypothetical update, report probability lift.
         def delta(modified_data):
             post = self._single_update(modified_data, lap_num)
             return round((post[driver_code] - base_p) * 100, 2)   # in percentage points
@@ -441,6 +459,7 @@ class BayesianRaceUpdater:
 def run_pipeline(year, circuit):
     from data.loader import load_session
 
+    # Load race session telemetry + race state (position/gap).
     raw          = load_session(year, circuit)
     drivers_data = raw["drivers"]
     corners      = raw["corners"]
@@ -451,6 +470,7 @@ def run_pipeline(year, circuit):
 
     corner_winners = {}
     for cn in corners:
+        # Stage-1 winner at each corner = best mean log-likelihood.
         best = max(driver_scores.keys(),
                    key=lambda d: driver_scores[d]["corner_means"].get(cn, -999))
         corner_winners[cn] = best
@@ -478,6 +498,7 @@ def run_pipeline(year, circuit):
                     "gap":           sl.get("gap"),
                     "laptime":       sl["laptime"],
                     "corner_score":  sl["lap_score"],
+                    # Needed for "which corner should this driver improve?" advice.
                     "corner_scores": {c["corner"]: c["score"] for c in sl["corners"]},
                     "nb_score":      nb,
                 }
